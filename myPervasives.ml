@@ -21,3 +21,7 @@ struct
 end
 
 module StringMap = Map.Make(String)
+module IdMmap = MultiMap.Make(struct
+				type t = LambdaJS.Prelude.id
+				let compare = Pervasives.compare
+			      end)

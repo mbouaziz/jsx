@@ -99,17 +99,17 @@ end
 module LJS =
 struct
 
-  type raw_ljs = LambdaJS.Syntax.src_exp
-  type fine_ljs = LambdaJS.Syntax.prim_exp
+  type raw_ljs = LambdaJS.Syntax.raw_exp
+  type fine_ljs = LambdaJS.Syntax.fine_exp
   type ljs = RawLJS of raw_ljs | FineLJS of fine_ljs
 
-  let raw_of_fine (e : fine_ljs) = (e :> raw_ljs)
+  (* let raw_of_fine (e : fine_ljs) = (e :> raw_ljs) *)
   let fine = function
-    | RawLJS e -> LambdaJS.Desugar.check_op e
+    | RawLJS e -> LambdaJS.Syntax.fine_of_raw e
     | FineLJS e -> e
   let raw = function
     | RawLJS e -> e
-    | FineLJS e -> raw_of_fine e
+    | FineLJS e -> LambdaJS.Syntax.raw_of_fine e
 
   let dummy_pos = LambdaJS.Prelude.dummy_pos
 
@@ -163,7 +163,7 @@ struct
     | Inputs.LJS ->
 	let from_ljs fineljs =
 	  fineljs
-          |> Options.if_desugar (raw_of_fine @> LambdaJS.Desugar.desugar)
+          |> Options.if_desugar (LambdaJS.Syntax.raw_of_fine @> LambdaJS.Desugar.desugar)
 	  |> (fun x -> FineLJS x)
 	  |> eseq prev_ljs
 	in
@@ -200,7 +200,7 @@ let main () =
     print_newline ();
   end;
   if !Options.opt_xeval then
-    XEval.xeval (LJS.fine ljs);
+    ignore (XEval.xeval (LJS.fine ljs) (SymbolicState.empty_sstate ()));
   ()
 
 let _ =
