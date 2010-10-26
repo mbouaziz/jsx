@@ -200,8 +200,9 @@ let main () =
     print_newline ();
   end;
   if !Options.opt_xeval then
-    ignore (XEval.xeval (LJS.fine ljs) (SymbolicState.empty_sstate ()));
-  ()
+    let _ = XEval.xeval (LJS.fine ljs) SymbolicState.empty_sstate in
+    ();
+    ()
 
 let _ =
   main ()
