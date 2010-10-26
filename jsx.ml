@@ -188,7 +188,7 @@ let main () =
     warning "Desugaring without environment";
   let ljs = Parsers.from_inputs (!Options.inputs) in
   if !Options.opt_pretty then begin
-    LambdaJS.Pretty.exp (LJS.raw ljs) Format.std_formatter;
+    LambdaJS.Pretty.exp (LJS.raw ljs) Prelude.Format.std_formatter;
     print_newline ();
   end;
   if !Options.opt_features then begin

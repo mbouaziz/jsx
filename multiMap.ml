@@ -1,4 +1,6 @@
 
+open LambdaJS.Prelude
+
 module type OrderedType = Map.OrderedType
 
 module type S = sig
