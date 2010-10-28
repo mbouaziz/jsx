@@ -8,9 +8,11 @@ open MyPervasives
 module SId :
 sig
   type t
+  val to_string : t -> string
 end =
 struct
   type t
+  let to_string _ = "symbolic-id"
 end
 
 module HeapLabel :
@@ -18,6 +20,7 @@ sig
   type t
   val compare : t -> t -> int
   val fresh : unit -> t
+  val to_string : t -> string
 end =
 struct
   type t = int
@@ -27,6 +30,8 @@ struct
   let fresh =
     let last = ref 0 in
     fun () -> incr last; !last
+
+  let to_string l = sprintf "l%03d" l
 
 end
 
@@ -41,6 +46,8 @@ module SHeap = Map.Make(HeapLabel)
 
 type 'a sheap = 'a sobj SHeap.t
 
+type 'a sexn = | SBreak of LambdaJS.Values.label * 'a
+	       | SThrow of 'a
 
 type 'a predicate =
   (* | PredConst of bool *)
@@ -51,7 +58,7 @@ type 'a pathcondition = 'a predicate list (* big And *)
 
 type 'a env = 'a IdMmap.t
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b }
+type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option }
 
 type 'a sstate = (svalue, 'a) state
 and svalue =
@@ -63,6 +70,9 @@ and svalue =
   | SOp2 of string * svalue * svalue
   | SOp3 of string * svalue * svalue * svalue
   (* | SApp of svalue * svalue list *)
+and srvalue =
+  | SValue of svalue
+  | SExn of svalue sexn
 
 type vsstate = svalue sstate
 type spathcondition = svalue pathcondition
@@ -71,16 +81,48 @@ type senv = svalue env
 
 let true_pathcondition : spathcondition = []
 let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = true_pathcondition ; env = empty_env ; heap = SHeap.empty ; res = x }
+let make_empty_sstate x = { pc = true_pathcondition ; env = empty_env ; heap = SHeap.empty ; res = x ; exn = None }
 let empty_sstate = make_empty_sstate ()
 
 
 
 let sundefined = SConst JS.Syntax.CUndefined
 let strue = SConst (JS.Syntax.CBool true)
+let sfalse = SConst (JS.Syntax.CBool false)
 
 let make_closure f s = f { s with res = () }
 
 
-let rec pretty_svalue = function
-  | _ -> assert false
+module Pretty = (* output a printer *)
+struct
+
+end
+
+module ToString = (* output a string *)
+struct
+
+  let const = let open JS.Syntax in function
+    | CInt x -> string_of_int x
+    | CNum x -> string_of_float x
+    | CString x -> sprintf "\"%s\"" x
+    | CBool x -> string_of_bool x
+    | CUndefined -> "undefined"
+    | CNull -> "null"
+    | CRegexp (re, g, i) -> sprintf "/%s/%s%s" re (if g then "g" else "") (if i then "i" else "")
+
+  let rec svalue ?(brackets=false) s =
+    let enclose x = if brackets then sprintf "(%s)" x else x in
+    function
+      | SConst c -> const c
+      | SClosure _ -> "function"
+      | SHeapLabel hl -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.find hl s.heap)))
+    | SId id -> SId.to_string id
+    | SOp1 (o, v) -> enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
+    | SOp2 (o, v1, v2) -> enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
+    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
+
+  and sobj s { attrs ; props } = "object"
+
+  let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
+
+end

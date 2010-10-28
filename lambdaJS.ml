@@ -16,3 +16,4 @@ struct
   let fine_of_raw = Desugar.check_op
 
 end
+module Values = Es5_values
