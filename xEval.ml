@@ -15,6 +15,9 @@ let check_exn f s =
   | Some exn -> [{ s with res = SExn exn }]
   | None -> f s
 
+let val_of_exn exn_opt v = match exn_opt with
+| Some exn -> SExn exn
+| None -> v
 
 let do_no_exn f s =
   match s.res with
@@ -318,19 +321,47 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       xeval1 unit_xeval_args_and_apply func s
   | ESeq(pos, e1, e2) -> s |> xeval e1 |> List.map (xeval e2) |> List.flatten
   | ELet(pos, x, e, body) ->
-      let unit_let rv s =
-	{ s with env = IdMmap.push x rv s.env }
-        |> xeval body
-      in
+      let unit_let rv s = xeval body { s with env = IdMmap.push x rv s.env } in
       s
       |> xeval1 unit_let e
       |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x *)
   | EFix(pos, x, e) -> failwith (sprintf "%s\nError [xeval] EFix NYI" (pretty_position pos))
-  | ELabel(pos, l, e) -> failwith (sprintf "%s\nError [xeval] ELabel NYI" (pretty_position pos))
-  | EBreak(pos, l, e) -> failwith (sprintf "%s\nError [xeval] EBreak NYI" (pretty_position pos)) 
-  | ETryCatch(pos, body, catch) -> failwith (sprintf "%s\nError [xeval] ETryCatch NYI" (pretty_position pos))
-  | ETryFinally(pos, body, fin) -> failwith (sprintf "%s\nError [xeval] ETryFinally NYI" (pretty_position pos))
-  | EThrow(pos, e) -> failwith (sprintf "%s\nError [xeval] EThrow NYI" (pretty_position pos))
+  | ELabel(pos, l, e) ->
+      let unit_check_label s = match s.res with
+      | SExn (SBreak (l', v)) when l = l' -> { s with res = SValue v }
+      | _ -> s
+      in
+      s |> xeval e |> List.map unit_check_label
+  | EBreak(pos, l, e) ->
+      let unit_break v s =
+	let exn = SBreak (l, v) in
+	[{ s with exn = Some exn ; res = SExn exn }]
+      in
+      xeval1 unit_break e s
+  | ETryCatch(pos, body, catch) ->
+      let unit_catch s = match s.res with
+      | SExn (SThrow exn) ->
+	  let unit_apply_catch s = match s.res with
+	  | SValue v -> apply ~pos v [exn] s
+	  | SExn _ -> assert false
+	  in
+	  s |> xeval catch |> List.map unit_apply_catch |> List.flatten
+      | _ -> [s]
+      in
+      s |> xeval body |> List.map unit_catch |> List.flatten
+  | ETryFinally(pos, body, fin) ->
+      let unit_finally s =
+	{ s with exn = None ; res = () }
+        |> xeval fin 
+	|> List.map (fun s' -> { s' with exn = s.exn ; res = val_of_exn s.exn s'.res })
+      in
+      s |> xeval body |> List.map unit_finally |> List.flatten
+  | EThrow(pos, e) ->
+      let unit_throw v s =
+	let exn = SThrow v in
+	[{ s with exn = Some exn ; res = SExn exn }]
+      in
+      xeval1 unit_throw e s
   | ELambda(pos, xl, e) ->
       let set_arg arg x s = { s with env = IdMmap.push x arg s.env } in
       let unset_arg x s = { s with env = IdMmap.pop x s.env } in
