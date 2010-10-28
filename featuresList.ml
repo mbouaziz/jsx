@@ -25,8 +25,6 @@ struct
     | FEGetFieldSurface
     | FEAttr of attr
     | FESetAttr of attr
-    | FEUpdateField
-    | FEGetField
     | FEDeleteField
     | FESet
     | FEOp1 of LambdaJS.Syntax.op1
@@ -129,11 +127,9 @@ struct
 	let t = List.fold_left of_sael t saell in
 	t
     | EUpdateFieldSurface (_, e1, e2, e3, e4) -> t |> FM.inc FEUpdateFieldSurface |> of_explist [e1; e2; e3; e4]
-    | EGetFieldSurface (_, e1, e2, e3) -> t |> FM.inc FEGetField |> of_explist [e1; e2; e3]
+    | EGetFieldSurface (_, e1, e2, e3) -> t |> FM.inc FEGetFieldSurface |> of_explist [e1; e2; e3]
     | EAttr (_, a, e1, e2) -> t |> FM.inc (FEAttr a) |> of_explist [e1; e2]
     | ESetAttr (_, a, e1, e2, e3) -> t |> FM.inc (FESetAttr a) |> of_explist [e1; e2; e3]
-    | EUpdateField (_, e1, e2, e3, e4, e5) -> t |> FM.inc FEUpdateField |> of_explist [e1; e2; e3; e4; e5]
-    | EGetField (_, e1, e2, e3, e4) -> t |> FM.inc FEGetField |> of_explist [e1; e2; e3; e4]
     | EDeleteField (_, e1, e2) -> t |> FM.inc FEDeleteField |> of_explist [e1; e2]
     | ESet (_, _, e) -> t |> FM.inc FESet |> of_exp e
     | EOp1 (_, op1, e) -> t |> FM.inc (FEOp1 op1) |> of_exp e
@@ -205,8 +201,6 @@ struct
     | FEGetFieldSurface -> "EGetFieldSurface"
     | FEAttr a -> "EAttr" ^ sep ^ (of_attr a)
     | FESetAttr a -> "ESetAttr" ^ sep ^ (of_attr a)
-    | FEUpdateField -> "EUpdateField"
-    | FEGetField -> "EGetField"
     | FEDeleteField -> "EDeleteField"
     | FESet -> "ESet"
     | FEOp1 op1 -> "EOp1" ^ sep ^ (of_op1 op1)
@@ -238,7 +232,7 @@ struct
     let exp =
       [
 	FEId; FEObject; FEUpdateFieldSurface; FEGetFieldSurface;
-	FEUpdateField; FEGetField; FEDeleteField; FESet; FEIf;
+	FEDeleteField; FESet; FEIf;
 	FEApp; FESeq; FELet; FEFix; FELabel; FEBreak;
 	FETryCatch; FETryFinally; FEThrow; FELambda
       ]

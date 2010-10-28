@@ -375,7 +375,6 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  |> List.map (List.fold_right unset_arg xl)
       in
       [{ s with res = SValue (SClosure lambda) }]
-  | EUpdateField _ | EGetField _ -> assert false
   in
   check_exn xeval_nocheck s
 
