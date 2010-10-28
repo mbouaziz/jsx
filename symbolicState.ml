@@ -63,7 +63,7 @@ type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ;
 type 'a sstate = (svalue, 'a) state
 and svalue =
   | SConst of sconst
-  | SClosure of (svalue list -> unit sstate -> svalue sstate list)
+  | SClosure of (svalue list -> unit sstate -> srvalue sstate list)
   | SHeapLabel of sheaplabel
   | SId of sid
   | SOp1 of string * svalue
@@ -74,7 +74,7 @@ and srvalue =
   | SValue of svalue
   | SExn of svalue sexn
 
-type vsstate = svalue sstate
+type vsstate = srvalue sstate
 type spathcondition = svalue pathcondition
 type senv = svalue env
 

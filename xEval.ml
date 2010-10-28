@@ -5,6 +5,23 @@ open JS.Syntax
 open LambdaJS.Syntax
 open SymbolicState
 
+
+let value_opt = function
+  | SValue v -> Some v
+  | SExn _ -> None
+
+let check_exn f s =
+  match s.exn with
+  | Some exn -> [{ s with res = SExn exn }]
+  | None -> f s
+
+
+let do_no_exn f s =
+  match s.res with
+  | SValue v -> f v s
+  | SExn _ -> [s]
+
+
 let apply ~pos func args s =
   match func with
   | SClosure c -> (c args |> make_closure) s
@@ -24,28 +41,28 @@ let apply_obj ~pos o this args s =
 
 let rec get_field ~pos obj1 obj2 field args s =
   match obj1 with
-  | SConst CNull -> [{ s with res = sundefined }]
+  | SConst CNull -> [{ s with res = SValue sundefined }]
   | SHeapLabel label ->
       let { attrs ; props } = SHeap.find label s.heap in
       begin match IdMap.find_opt field props with
       | Some prop_attrs ->
 	  begin match AttrMap.find_opt Value prop_attrs with
-	  | Some value -> [{ s with res = value }]
+	  | Some value -> [{ s with res = SValue value }]
 	  | None ->
 	      begin match AttrMap.find_opt Getter prop_attrs with
 	      | Some getter ->
-		  let apply_getter s = apply_obj ~pos getter obj2 s.res s in
+		  let apply_getter rv s = apply_obj ~pos getter obj2 rv s in
 		  s
 	          |> apply ~pos args [getter]
-		  |> List.map apply_getter
+		  |> List.map (do_no_exn apply_getter)
 		  |> List.flatten
-	      | None -> [{ s with res = sundefined }]
+	      | None -> [{ s with res = SValue sundefined }]
 	      end
 	  end
       | None ->
 	  begin match IdMap.find_opt "proto" attrs with
 	  | Some proto -> get_field ~pos proto obj2 field args s
-	  | None -> [{ s with res = sundefined }]
+	  | None -> [{ s with res = SValue sundefined }]
 	  end
       end
   | _ -> failwith (sprintf "%s\nError [xeval] get_field received (or reached) a non-object. The expression was (get-field %s %s %s)" (pretty_position pos) (ToString.svalue s obj1) (ToString.svalue s obj2) field)
@@ -58,9 +75,9 @@ let add_field ~pos obj field newval s =
       if IdMap.mem_binding "extensible" strue attrs then
 	let a = [Value, newval; Config, strue; Writable, strue; Enum, strue ] in
 	let o = { attrs ; props = IdMap.add field (AttrMap.from_list a) props } in
-	[{ s with heap = SHeap.add label o s.heap ; res = newval }]
+	[{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
       else
-	[{ s with res = sundefined }]
+	[{ s with res = SValue sundefined }]
   | _ -> failwith (sprintf "%s\nError [xeval] add_field given non-object" (pretty_position pos))
 
 
@@ -77,16 +94,16 @@ let rec update_field ~pos obj1 obj2 field newval args s =
 	  if writable prop then
 	    if obj1 = obj2 then
 	      let o = { attrs ; props = IdMap.add field (AttrMap.add Value newval prop) props } in
-	      [{ s with heap = SHeap.add label o s.heap ; res = newval }]
+	      [{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
 	    else
 	      add_field ~pos obj2 field newval s
 	  else
 	    begin match AttrMap.find_opt Setter prop with
 	    | Some setter ->
-		let apply_setter s = apply_obj ~pos setter obj2 s.res s in
+		let apply_setter rv s = apply_obj ~pos setter obj2 rv s in
 		s
 	        |> apply ~pos args [setter]
-		|> List.map apply_setter
+		|> List.map (do_no_exn apply_setter)
 		|> List.flatten
 	    | None -> failwith (sprintf "%s\nFail [xeval] Field not writable!" (pretty_position pos))
 	    end
@@ -106,10 +123,10 @@ let get_attr ~pos attr obj field s =
       begin match IdMap.find_opt f props with
       | Some prop ->
 	  begin match AttrMap.find_opt attr prop with
-	  | Some a -> [{ s with res = a }]
-	  | None -> [{ s with res = sundefined }]
+	  | Some a -> [{ s with res = SValue a }]
+	  | None -> [{ s with res = SValue sundefined }]
 	  end
-      | None -> [{ s with res = sundefined }]
+      | None -> [{ s with res = SValue sundefined }]
       end
   | _ -> failwith (sprintf "%s\nError [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -165,13 +182,13 @@ let set_attr ~pos attr obj field newval s =
 	  | _ -> failwith (sprintf "%s\nWTF [xeval] set-attr don't know what to do with other values" (pretty_position pos))
 	  in
 	  let o = { attrs ; props = IdMap.add f new_prop props } in
-	  [{ s with heap = SHeap.add label o s.heap ; res = newval }]
+	  [{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
       | None ->
 	  begin match IdMap.find_opt "extensible" attrs with
 	  | Some (SConst (CBool true)) ->
 	      let new_prop = AttrMap.singleton attr newval in
 	      let o = { attrs ; props = IdMap.add f new_prop props } in
-	      [{ s with heap = SHeap.add label o s.heap ; res = newval }]
+	      [{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
 	  | Some _ -> failwith (sprintf "%s\nError [xeval] Extensible not true on object to extend with an attr" (pretty_position pos))
 	  | None -> failwith (sprintf "%s\nError [xeval] No extensible property on object to extend with an attr" (pretty_position pos))
 	  end
@@ -184,30 +201,25 @@ let arity_mismatch_err ~pos xl args s =
 
 
 let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
-(* match s.exn with *)
-(* | Some exn -> [{ s with res = SExn exn }] *)
-(* | None -> *)
-  match exp with
-  | EConst(_, c) -> [{ s with res = SConst c }]
+  let xeval_nocheck s = match exp with
+  | EConst(_, c) -> [{ s with res = SValue (SConst c) }]
   | EId(pos, x) ->
       let sval = try IdMmap.find x s.env with
 	Not_found -> failwith (sprintf "%s\nError: [xeval] Unbound identifier: %s in identifier lookup" (pretty_position pos) x)
       in
-      [{ s with res = sval }]
+      [{ s with res = SValue sval }]
   | ESet(pos, x, e) ->
       let _ = try IdMmap.find x s.env with
 	Not_found -> failwith (sprintf "%s\nError: [xeval] Unbound identifier: %s in set!" (pretty_position pos) x)
       in
-      let unit_set s = { s with env = IdMmap.replace x s.res s.env} in
-      s
-      |> xeval e
-      |> List.map unit_set
+      let unit_set v s = [{ s with env = IdMmap.replace x v s.env }] in
+      xeval1 unit_set e s
   | EObject(pos, attrs, props) ->
       let xeval_obj_attr (name, e) sl =
 	let unit_xeval_obj_attr s =
 	  s
           |> xeval e
-	  |> List.map (fun s' -> { s' with res = IdMap.add name s'.res s.res })
+	  |> List.map (fun s' -> { s' with res = IdMap.add_opt name (value_opt s'.res) s.res })
 	in
 	sl |> List.map unit_xeval_obj_attr |> List.flatten
       in
@@ -215,7 +227,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	let unit_xeval_prop_attr s =
 	  s
           |> xeval e
-          |> List.map (fun s' -> { s' with res = AttrMap.add name s'.res s.res })
+	  |> List.map (fun s' -> { s' with res = AttrMap.add_opt name (value_opt s'.res) s.res })
 	in
 	sl |> List.map unit_xeval_prop_attr |> List.flatten
       in
@@ -229,13 +241,14 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       in
       let make_object s =
 	let label = HeapLabel.fresh () in
-	{ s with heap = SHeap.add label s.res s.heap ; res = SHeapLabel label }
+	[{ s with heap = SHeap.add label s.res s.heap ; res = SValue (SHeapLabel label) }]
       in
       [{ s with res = IdMap.empty }]
       |> List.fold_right xeval_obj_attr attrs
       |> List.map (fun s -> { s with res = { attrs = s.res ; props = IdMap.empty }})
       |> List.fold_right xeval_prop props
-      |> List.map make_object
+      |> List.map (check_exn make_object)
+      |> List.flatten
   | EUpdateFieldSurface(pos, obj, f, v, args) ->
       let unit_update obj_value f_value v_value args_value s =
 	match obj_value, f_value with
@@ -259,9 +272,9 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	    let { attrs ; props } = SHeap.find label s.heap in
 	    if IdMap.mem f props && IdMap.mem_binding "configurable" strue attrs then
 	      let obj = { attrs ; props = IdMap.remove f props } in
-	      [{ s with heap = SHeap.add label obj s.heap ; res = strue }]
+	      [{ s with heap = SHeap.add label obj s.heap ; res = SValue strue }]
 	    else
-	      [{ s with res = sfalse }]
+	      [{ s with res = SValue sfalse }]
 	| _ -> failwith (sprintf "%s\nError [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval2 unit_delete obj f s
@@ -271,21 +284,20 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   | EOp2(pos, `Prim2 op, e1, e2) -> xeval2 (XDelta.op2 ~pos op) e1 e2 s
   | EOp3(pos, `Prim3 op, e1, e2, e3) -> xeval3 (XDelta.op3 ~pos op) e1 e2 e3 s
   | EIf(pos, c, t, e) ->
-      let unit_if s =
-	let sl_t = xeval t { s with pc = (PredVal s.res)::s.pc } in
-	let sl_e = xeval e { s with pc = (PredNotVal s.res)::s.pc } in
+      let unit_if rv s =
+	let sl_t = xeval t { s with pc = (PredVal rv)::s.pc } in
+	let sl_e = xeval e { s with pc = (PredNotVal rv)::s.pc } in
 	sl_t@sl_e
       in
-      s
-      |> xeval c
-      |> List.map unit_if
-      |> List.flatten
+      xeval1 unit_if c s
   | EApp(pos, func, args) ->
       let xeval_arg sl arg =
 	let unit_xeval_arg s =
-	  s
-          |> xeval arg
-	  |> List.map (fun s' -> { s' with res = fst s.res, s'.res::(snd s.res) })
+	  let unit_add s' = match s'.res with
+	  | SValue v -> { s' with res = fst s.res, v::(snd s.res) }
+	  | SExn _ -> { s' with res = s.res }
+	  in
+	  s |> xeval arg |> List.map unit_add
 	in
 	sl |> List.map unit_xeval_arg |> List.flatten
       in
@@ -298,18 +310,20 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| SHeapLabel _, _ -> failwith (sprintf "%s\nError [xeval] Need to provide this and args for a call to a function object" (pretty_position pos))
 	| _, _ -> failwith (sprintf "%s\nError [xeval] Inapplicable value: %s, applied to %s." (pretty_position pos) (ToString.svalue s func_value) (ToString.svalue_list s args_values))
       in
-      let sl = s |> xeval func |> List.map (fun s -> { s with res = s.res, [] }) in
-      List.fold_left xeval_arg sl args
-      |> List.map unit_apply
-      |> List.flatten
-  | ESeq(pos, e1, e2) ->
-      s |> xeval e1 |> List.map (xeval e2) |> List.flatten
+      let unit_xeval_args_and_apply v s =
+	List.fold_left xeval_arg [{ s with res = v, [] }] args
+        |> List.map (check_exn unit_apply)
+	|> List.flatten
+      in
+      xeval1 unit_xeval_args_and_apply func s
+  | ESeq(pos, e1, e2) -> s |> xeval e1 |> List.map (xeval e2) |> List.flatten
   | ELet(pos, x, e, body) ->
+      let unit_let rv s =
+	{ s with env = IdMmap.push x rv s.env }
+        |> xeval body
+      in
       s
-      |> xeval e
-      |> List.map (fun s -> { s with env = IdMmap.push x s.res s.env })
-      |> List.map (xeval body)
-      |> List.flatten
+      |> xeval1 unit_let e
       |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x *)
   | EFix(pos, x, e) -> failwith (sprintf "%s\nError [xeval] EFix NYI" (pretty_position pos))
   | ELabel(pos, l, e) -> failwith (sprintf "%s\nError [xeval] ELabel NYI" (pretty_position pos))
@@ -329,27 +343,44 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  |> xeval e
 	  |> List.map (List.fold_right unset_arg xl)
       in
-      [{ s with res = SClosure lambda }]
+      [{ s with res = SValue (SClosure lambda) }]
   | EUpdateField _ | EGetField _ -> assert false
+  in
+  check_exn xeval_nocheck s
 
-and unit_xeval_push_res : 'a. fine_exp -> 'a sstate -> ('a * svalue) sstate list = fun x s ->
+and unit_xeval_push_res : 'a. fine_exp -> 'a sstate -> ('a * srvalue) sstate list = fun x s ->
   s |> xeval x |> List.map (fun s' -> { s' with res = s.res, s'.res })
 
-and xeval_push_res : 'a. fine_exp -> 'a sstate list -> ('a * svalue) sstate list = fun x sl ->
+and xeval_push_res : 'a. fine_exp -> 'a sstate list -> ('a * srvalue) sstate list = fun x sl ->
   sl |> List.map (unit_xeval_push_res x) |> List.flatten
 
 and xeval1 : 'a. _ -> fine_exp -> 'a sstate -> vsstate list = fun f e1 s ->
-  let f' s = f s.res s in
+  let f' s = match s.res with
+  | SExn _ -> [s]
+  | SValue v -> f v s
+  in
   s |> xeval e1 |> List.map f' |> List.flatten
 
 and xeval2 : 'a. _ -> fine_exp -> fine_exp -> 'a sstate -> vsstate list = fun f e1 e2 s ->
-  let f' s = let v1, v2 = s.res in f v1 v2 s in
+  let f' s = match s.res with
+  | _, (SExn _ as rv) -> [{ s with res = rv }]
+  | SValue v1, SValue v2 -> f v1 v2 s
+  | _, _ -> assert false
+  in
   s |> xeval e1 |> xeval_push_res e2 |> List.map f' |> List.flatten
 
 and xeval3 : 'a. _ -> fine_exp -> fine_exp -> fine_exp -> 'a sstate -> vsstate list = fun f e1 e2 e3 s ->
-  let f' s = let (v1, v2), v3 = s.res in f v1 v2 v3 s in
+  let f' s = match s.res with
+  | _, (SExn _ as rv) -> [{ s with res = rv }]
+  | (SValue v1, SValue v2), SValue v3 -> f v1 v2 v3 s
+  | _ -> assert false
+  in
   s |> xeval e1 |> xeval_push_res e2 |> xeval_push_res e3 |> List.map f' |> List.flatten
 
 and xeval4 : 'a. _ -> fine_exp -> fine_exp -> fine_exp -> fine_exp -> 'a sstate -> vsstate list = fun f e1 e2 e3 e4 s ->
-  let f' s = let ((v1, v2), v3), v4 = s.res in f v1 v2 v3 v4 s in
+  let f' s = match s.res with
+  | _, (SExn _ as rv) -> [{ s with res = rv }]
+  | ((SValue v1, SValue v2), SValue v3), SValue v4 -> f v1 v2 v3 v4 s
+  | _ -> assert false
+  in
   s |> xeval e1 |> xeval_push_res e2 |> xeval_push_res e3 |> xeval_push_res e4 |> List.map f' |> List.flatten
