@@ -46,8 +46,11 @@ module SHeap = Map.Make(HeapLabel)
 
 type 'a sheap = 'a sobj SHeap.t
 
+type err = string
+
 type 'a sexn = | SBreak of LambdaJS.Values.label * 'a
 	       | SThrow of 'a
+	       | SError of err
 
 type 'a predicate =
   (* | PredConst of bool *)

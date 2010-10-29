@@ -15,20 +15,20 @@ let check_exn f s =
   | Some exn -> [{ s with res = SExn exn }]
   | None -> f s
 
-let val_of_exn exn_opt v = match exn_opt with
-| Some exn -> SExn exn
-| None -> v
-
 let do_no_exn f s =
   match s.res with
   | SValue v -> f v s
   | SExn _ -> [s]
 
 
+let err s msg = let exn = SError msg in { s with exn = Some exn ; res = SExn exn }
+let errl s msg = [err s msg]
+
+
 let apply ~pos func args s =
   match func with
   | SClosure c -> (c args |> make_closure) s
-  | _ -> failwith (sprintf "%s\nError [xeval] Applied non-function, was actually %s" (pretty_position pos) (ToString.svalue s func))
+  | _ -> errl s (sprintf "%s\nError [xeval] Applied non-function, was actually %s" (pretty_position pos) (ToString.svalue s func))
 
 
 let apply_obj ~pos o this args s =
@@ -37,9 +37,9 @@ let apply_obj ~pos o this args s =
       let { attrs ; props } = SHeap.find label s.heap in
       begin match IdMap.find_opt "code" attrs with
       | Some code_attr -> apply ~pos code_attr [this; args] s
-      | None -> failwith (sprintf "%s\nFail [xeval] Applying inapplicable object!" (pretty_position pos))
+      | None -> errl s (sprintf "%s\nFail [xeval] Applying inapplicable object!" (pretty_position pos))
       end
-  | _ -> failwith (sprintf "%s\nFail [xeval] Applying non-object!" (pretty_position pos))
+  | _ -> errl s (sprintf "%s\nFail [xeval] Applying non-object!" (pretty_position pos))
 
 
 let rec get_field ~pos obj1 obj2 field args s =
@@ -68,7 +68,7 @@ let rec get_field ~pos obj1 obj2 field args s =
 	  | None -> [{ s with res = SValue sundefined }]
 	  end
       end
-  | _ -> failwith (sprintf "%s\nError [xeval] get_field received (or reached) a non-object. The expression was (get-field %s %s %s)" (pretty_position pos) (ToString.svalue s obj1) (ToString.svalue s obj2) field)
+  | _ -> errl s (sprintf "%s\nError [xeval] get_field received (or reached) a non-object. The expression was (get-field %s %s %s)" (pretty_position pos) (ToString.svalue s obj1) (ToString.svalue s obj2) field)
 
 
 let add_field ~pos obj field newval s =
@@ -81,7 +81,7 @@ let add_field ~pos obj field newval s =
 	[{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
       else
 	[{ s with res = SValue sundefined }]
-  | _ -> failwith (sprintf "%s\nError [xeval] add_field given non-object" (pretty_position pos))
+  | _ -> errl s (sprintf "%s\nError [xeval] add_field given non-object" (pretty_position pos))
 
 
 let writable prop = AttrMap.mem_binding Writable strue prop
@@ -108,7 +108,7 @@ let rec update_field ~pos obj1 obj2 field newval args s =
 	        |> apply ~pos args [setter]
 		|> List.map (do_no_exn apply_setter)
 		|> List.flatten
-	    | None -> failwith (sprintf "%s\nFail [xeval] Field not writable!" (pretty_position pos))
+	    | None -> errl s (sprintf "%s\nFail [xeval] Field not writable!" (pretty_position pos))
 	    end
       | None ->
 	  begin match IdMap.find_opt "proto" attrs with
@@ -116,7 +116,7 @@ let rec update_field ~pos obj1 obj2 field newval args s =
 	  | None -> add_field ~pos obj2 field newval s
 	  end
       end
-  | _ -> failwith (sprintf "%s\n[xeval] set_field received (or found) a non-object. The call was (set-field %s %s %s %s)" (pretty_position pos) (ToString.svalue s obj1) (ToString.svalue s obj2) field (ToString.svalue s newval))
+  | _ -> errl s (sprintf "%s\n[xeval] set_field received (or found) a non-object. The call was (set-field %s %s %s %s)" (pretty_position pos) (ToString.svalue s obj1) (ToString.svalue s obj2) field (ToString.svalue s newval))
 
 
 let get_attr ~pos attr obj field s =
@@ -131,7 +131,7 @@ let get_attr ~pos attr obj field s =
 	  end
       | None -> [{ s with res = SValue sundefined }]
       end
-  | _ -> failwith (sprintf "%s\nError [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj) (ToString.svalue s field))
+  | _ -> errl s (sprintf "%s\nError [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj) (ToString.svalue s field))
 
 
 let attr_or_false ~pos attr prop =
@@ -192,31 +192,27 @@ let set_attr ~pos attr obj field newval s =
 	      let new_prop = AttrMap.singleton attr newval in
 	      let o = { attrs ; props = IdMap.add f new_prop props } in
 	      [{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
-	  | Some _ -> failwith (sprintf "%s\nError [xeval] Extensible not true on object to extend with an attr" (pretty_position pos))
-	  | None -> failwith (sprintf "%s\nError [xeval] No extensible property on object to extend with an attr" (pretty_position pos))
+	  | Some _ -> errl s (sprintf "%s\nError [xeval] Extensible not true on object to extend with an attr" (pretty_position pos))
+	  | None -> errl s (sprintf "%s\nError [xeval] No extensible property on object to extend with an attr" (pretty_position pos))
 	  end
       end
-  | _ -> failwith (sprintf "%s\nError [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj) (ToString.svalue s field))
-
-
-let arity_mismatch_err ~pos xl args s =
-  failwith (sprintf "%s\nError [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (pretty_position pos) (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
+  | _ -> errl s (sprintf "%s\nError [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj) (ToString.svalue s field))
 
 
 let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   let xeval_nocheck s = match exp with
   | EConst(_, c) -> [{ s with res = SValue (SConst c) }]
   | EId(pos, x) ->
-      let sval = try IdMmap.find x s.env with
-	Not_found -> failwith (sprintf "%s\nError: [xeval] Unbound identifier: %s in identifier lookup" (pretty_position pos) x)
-      in
-      [{ s with res = SValue sval }]
+      begin match IdMmap.find_opt x s.env with
+      | Some sval -> [{ s with res = SValue sval }]
+      | None -> errl s (sprintf "%s\nError: [xeval] Unbound identifier: %s in identifier lookup" (pretty_position pos) x)
+      end
   | ESet(pos, x, e) ->
-      let _ = try IdMmap.find x s.env with
-	Not_found -> failwith (sprintf "%s\nError: [xeval] Unbound identifier: %s in set!" (pretty_position pos) x)
-      in
-      let unit_set v s = [{ s with env = IdMmap.replace x v s.env }] in
-      xeval1 unit_set e s
+      if IdMmap.mem x s.env then
+	let unit_set v s = [{ s with env = IdMmap.replace x v s.env }] in
+	xeval1 unit_set e s
+      else
+	errl s (sprintf "%s\nError: [xeval] Unbound identifier: %s in set!" (pretty_position pos) x)
   | EObject(pos, attrs, props) ->
       let xeval_obj_attr (name, e) sl =
 	let unit_xeval_obj_attr s =
@@ -257,7 +253,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	match obj_value, f_value with
 	| SHeapLabel _, SConst (CString f) ->
 	    update_field ~pos obj_value obj_value f v_value args_value s
-	| _ -> failwith (sprintf "%s\nError [xeval] Update field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
+	| _ -> errl s (sprintf "%s\nError [xeval] Update field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval4 unit_update obj f v args s
   | EGetFieldSurface(pos, obj, f, args) ->
@@ -265,7 +261,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	match obj_value, f_value with
 	| SHeapLabel _, SConst (CString f) ->
 	    get_field ~pos obj_value obj_value f args_value s
-	| _ -> failwith (sprintf "%s\nError [xeval] Get field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
+	| _ -> errl s (sprintf "%s\nError [xeval] Get field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval3 unit_get obj f args s
   | EDeleteField(pos, obj, f) ->
@@ -278,7 +274,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	      [{ s with heap = SHeap.add label obj s.heap ; res = SValue strue }]
 	    else
 	      [{ s with res = SValue sfalse }]
-	| _ -> failwith (sprintf "%s\nError [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
+	| _ -> errl s (sprintf "%s\nError [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval2 unit_delete obj f s
   | EAttr(pos, attr, obj, field) -> xeval2 (get_attr ~pos attr) obj field s
@@ -310,8 +306,8 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	match func_value, args_values with
 	| SHeapLabel _, [this; args] -> apply_obj ~pos func_value this args s
 	| SClosure _, _ -> apply ~pos func_value args_values s
-	| SHeapLabel _, _ -> failwith (sprintf "%s\nError [xeval] Need to provide this and args for a call to a function object" (pretty_position pos))
-	| _, _ -> failwith (sprintf "%s\nError [xeval] Inapplicable value: %s, applied to %s." (pretty_position pos) (ToString.svalue s func_value) (ToString.svalue_list s args_values))
+	| SHeapLabel _, _ -> errl s (sprintf "%s\nError [xeval] Need to provide this and args for a call to a function object" (pretty_position pos))
+	| _, _ -> errl s (sprintf "%s\nError [xeval] Inapplicable value: %s, applied to %s." (pretty_position pos) (ToString.svalue s func_value) (ToString.svalue_list s args_values))
       in
       let unit_xeval_args_and_apply v s =
 	List.fold_left xeval_arg [{ s with res = v, [] }] args
@@ -325,7 +321,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       s
       |> xeval1 unit_let e
       |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x *)
-  | EFix(pos, x, e) -> failwith (sprintf "%s\nError [xeval] EFix NYI" (pretty_position pos))
+  | EFix(pos, x, e) -> errl s (sprintf "%s\nError [xeval] EFix NYI" (pretty_position pos))
   | ELabel(pos, l, e) ->
       let unit_check_label s = match s.res with
       | SExn (SBreak (l', v)) when l = l' -> { s with res = SValue v }
@@ -351,9 +347,13 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       s |> xeval body |> List.map unit_catch |> List.flatten
   | ETryFinally(pos, body, fin) ->
       let unit_finally s =
-	{ s with exn = None ; res = () }
-        |> xeval fin 
-	|> List.map (fun s' -> { s' with exn = s.exn ; res = val_of_exn s.exn s'.res })
+	match s.res with
+	| SValue _ -> xeval fin s
+	| SExn (SError _) -> [s]
+	| SExn _ ->
+	    { s with exn = None ; res = () }
+	    |> xeval fin
+	    |> List.map (fun s' -> { s' with exn = s.exn ; res = s.res })
       in
       s |> xeval body |> List.map unit_finally |> List.flatten
   | EThrow(pos, e) ->
@@ -365,9 +365,12 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   | ELambda(pos, xl, e) ->
       let set_arg arg x s = { s with env = IdMmap.push x arg s.env } in
       let unset_arg x s = { s with env = IdMmap.pop x s.env } in
+      let arity_mismatch_err args s =
+	errl s (sprintf "%s\nError [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (pretty_position pos) (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
+      in
       let lambda args s =
 	if (List.length args) != (List.length xl) then
-	  arity_mismatch_err ~pos xl args s
+	  arity_mismatch_err args s
 	else
 	  s
           |> List.fold_right2 set_arg args xl
