@@ -128,4 +128,35 @@ struct
 
   let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
+  let label l = l
+
+  let err s e = e
+
+  let exn s = function
+    | SBreak(l, v) -> sprintf "Break(%s, %s)" (label l) (svalue s v)
+    | SThrow v -> sprintf "Throw(%s)" (svalue s v)
+    | SError e -> sprintf "Error(%s)" (err s e)
+
+  let srvalue s = function
+    | SExn e -> exn s e
+    | SValue v -> svalue s v
+
+  let predicate ?(brackets=false) s = function
+    | PredVal v -> svalue ~brackets s v
+    | PredNotVal v -> sprintf "Not(%s)" (svalue s v)
+
+  let pathcondition s = function
+    | [] -> "True"
+    | [p] -> predicate s p
+    | pl -> String.concat "/\\" (List.map (predicate ~brackets:true s) pl)
+
+  let env s env = "env"
+
+  let heap heap = "heap"
+
+  let state s = sprintf "pc:\t%s\nenv:\t%s\nheap:\t%s\nres:\t%s"
+    (pathcondition s s.pc) (env s s.env) (heap s.heap) (srvalue s s.res)
+
+  let state_list sl = String.concat "\n\n" (List.map state sl)
+
 end

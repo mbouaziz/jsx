@@ -46,9 +46,9 @@ struct
 
   (* options and their default values *)
   let opt_desugar = ref true
-  let opt_eval = ref true
-  let opt_features = ref true
-  let opt_pretty = ref true
+  let opt_eval = ref false
+  let opt_features = ref false
+  let opt_pretty = ref false
   let opt_xeval = ref true
 
   (* 'a -> 'a functions for options *)
@@ -200,9 +200,8 @@ let main () =
     print_newline ();
   end;
   if !Options.opt_xeval then
-    let _ = XEval.xeval (LJS.fine ljs) SymbolicState.empty_sstate in
-    ();
-    ()
+    let sl = XEval.xeval (LJS.fine ljs) SymbolicState.empty_sstate in
+    print_endline (SymbolicState.ToString.state_list sl)
 
 let _ =
   main ()
