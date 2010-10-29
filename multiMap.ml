@@ -18,7 +18,11 @@ module type S = sig
   val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
   val iter : (key -> 'a -> unit) -> 'a t -> unit
   val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+  val for_all : (key -> 'a -> bool) -> 'a t -> bool
+  val exists : (key -> 'a -> bool) -> 'a t -> bool
+  val cardinal : 'a t -> int
   val find : key -> 'a t -> 'a
+  val find_opt : key -> 'a t -> 'a option
 
 end
 
@@ -77,12 +81,16 @@ struct
 
   let fold f = M.fold (onhd f)
 
-  (* let for_all f = M.for_all (onhd f) *)
+  let for_all f = M.for_all (onhd f)
 
-  (* let exists f = M.exists (onhd f) *)
+  let exists f = M.exists (onhd f)
 
-  (* let cardinal = M.cardinal *)
+  let cardinal = M.cardinal
 
   let find k m = List.hd (M.find k m)
+
+  let find_opt k m = match M.find_opt k m with
+  | Some x -> Some (List.hd x)
+  | None -> None
 
 end
