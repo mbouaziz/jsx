@@ -20,9 +20,7 @@ let do_no_exn f s =
   | SValue v -> f v s
   | SExn _ -> [s]
 
-
-let err s msg = let exn = SError msg in { s with exn = Some exn ; res = SExn exn }
-let errl s msg = [err s msg]
+let errl = XDelta.errl
 
 
 let apply ~pos func args s =
