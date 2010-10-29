@@ -135,7 +135,7 @@ struct
   let exn s = function
     | SBreak(l, v) -> sprintf "Break(%s, %s)" (label l) (svalue s v)
     | SThrow v -> sprintf "Throw(%s)" (svalue s v)
-    | SError e -> sprintf "Error(%s)" (err s e)
+    | SError e -> err s e
 
   let srvalue s = function
     | SExn e -> exn s e
@@ -150,12 +150,15 @@ struct
     | [p] -> predicate s p
     | pl -> String.concat "/\\" (List.map (predicate ~brackets:true s) pl)
 
-  let env s env = "env"
+  let env s env = ""
 
-  let heap heap = "heap"
+  let heap heap = ""
 
-  let state s = sprintf "pc:\t%s\nenv:\t%s\nheap:\t%s\nres:\t%s"
-    (pathcondition s s.pc) (env s s.env) (heap s.heap) (srvalue s s.res)
+  let state s =
+    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", srvalue s s.res]
+    |> List.filter_map (fun (name, msg) -> if msg = "" then None else
+			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
+    |> String.concat "\n"
 
   let state_list sl = String.concat "\n\n" (List.map state sl)
 
