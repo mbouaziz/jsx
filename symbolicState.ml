@@ -35,6 +35,23 @@ struct
 
 end
 
+module Effects :
+sig
+  type 'a t
+  val empty : 'a t
+  val to_string : ('a -> string) -> 'a t -> string
+  val print : 'a -> 'a t -> 'a t
+end =
+struct
+  type 'a t = 'a list
+
+  let empty = []
+
+  let to_string alpha_to_string = List.rev_map alpha_to_string @> String.concat "\n"
+
+  let print x eff = x::eff
+end
+
 
 type sconst = JS.Syntax.const
 type sid = SId.t
@@ -61,7 +78,7 @@ type 'a pathcondition = 'a predicate list (* big And *)
 
 type 'a env = 'a IdMmap.t
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option }
+type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; effects : 'a Effects.t }
 
 type 'a sstate = (svalue, 'a) state
 and svalue =
@@ -84,7 +101,7 @@ type senv = svalue env
 
 let true_pathcondition : spathcondition = []
 let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = true_pathcondition ; env = empty_env ; heap = SHeap.empty ; res = x ; exn = None }
+let make_empty_sstate x = { pc = true_pathcondition ; env = empty_env ; heap = SHeap.empty ; res = x ; exn = None ; effects = Effects.empty }
 let empty_sstate = make_empty_sstate ()
 
 
@@ -151,11 +168,15 @@ struct
     | pl -> String.concat "/\\" (List.map (predicate ~brackets:true s) pl)
 
   let env s env = ""
-
   let heap heap = ""
+  let res_rsvalue s rv = ""
+  let res_exn s = function
+    | Some e -> exn s e
+    | None -> ""
+  let effects s eff = Effects.to_string (svalue s) eff
 
   let state s =
-    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", srvalue s s.res]
+    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "effects", effects s s.effects]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
