@@ -44,6 +44,7 @@ let inputs = ref []
 
 (* options and their default values *)
 let opt_eval = ref false
+let opt_fatal = ref false
 let opt_features = ref false
 let opt_pretty = ref false
 let opt_xeval = ref true
@@ -61,6 +62,7 @@ let arg_speclist =
     [
       "eval", opt_eval, "evaluation of code";
       "features", opt_features, "listing of used features";
+      "fatal", opt_fatal, "fatal errors";
       "pretty", opt_pretty, "pretty printing of code";
       "xeval", opt_xeval, "symbolic evaluation of code";
     ]

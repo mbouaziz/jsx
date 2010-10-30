@@ -2,7 +2,13 @@
 open MyPervasives
 open SymbolicState
 
-let err s msg = let exn = SError msg in { s with exn = Some exn ; res = SExn exn }
+let res_e s e = { s with exn = Some e ; res = SExn e }
+let resl_e s e = [res_e s e]
+let err s msg =
+  if !Options.opt_fatal then
+    failwith msg
+  else
+    res_e s (SError msg)
 let errl s msg = [err s msg]
 
 
