@@ -43,6 +43,7 @@ sig
   val empty : 'a t
   val to_string : ('a -> string) -> 'a t -> string
   val print : 'a -> 'a t -> 'a t
+  val values : 'a t -> 'a list
 end =
 struct
   type 'a t = 'a list
@@ -52,6 +53,8 @@ struct
   let to_string alpha_to_string = List.rev_map alpha_to_string @> String.concat "\n"
 
   let print x sio = x::sio
+
+  let values sio = sio
 end
 
 
@@ -61,6 +64,7 @@ type sheaplabel = HeapLabel.t
 
 type 'a sobj = { attrs : 'a IdMap.t ; props : ('a LambdaJS.Syntax.AttrMap.t) IdMap.t }
 
+module LabelSet = Set.Make(HeapLabel)
 module SHeap = Map.Make(HeapLabel)
 
 type 'a sheap = 'a sobj SHeap.t
@@ -159,7 +163,6 @@ let do_no_exn f s =
   | SValue v -> f v s
   | SExn _ -> [s]
 
-
 module Pretty = (* output a printer *)
 struct
 
@@ -177,12 +180,31 @@ struct
     | CNull -> "null"
     | CRegexp (re, g, i) -> sprintf "/%s/%s%s" re (if g then "g" else "") (if i then "i" else "")
 
-  let rec svalue ?(brackets=false) s =
+  (* Collect only labels that will be printed by svalue AND by svalue of SHeap.find of these labels *)
+  let collect_labels { heap ; _ } vl =
+    let rec aux v labs = match v with
+    | SConst _ -> labs
+    | SHeapLabel l -> labs |> LabelSet.add l |> aux_obj (SHeap.find l heap)
+    | SClosure _ -> labs
+    | SSymb symb -> match symb with
+      | SId _ -> labs
+      | SOp1(_, v) -> labs |> aux v
+      | SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
+      | SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
+      | SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
+    and aux_obj { attrs ; props } = IdMap.fold aux_map1 attrs @> IdMap.fold aux_map2 props
+    and aux_map1 : 'a. 'a -> _ = fun _ -> aux
+    and aux_map2 _ am = LambdaJS.Syntax.AttrMap.fold aux_map1 am
+    in
+    List.fold_right aux vl LabelSet.empty
+
+  let rec svalue ?(deep=false) ?(brackets=false) s =
     let enclose x = if brackets then sprintf "(%s)" x else x in
     function
       | SConst c -> const c
       | SClosure _ -> "function"
-      | SHeapLabel hl -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.find hl s.heap)))
+      | SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.find hl s.heap)))
+      | SHeapLabel hl -> sprintf "heap[%s]" (HeapLabel.to_string hl)
       | SSymb symb -> match symb with
 	|SId id -> SId.to_string id
 	| SOp1 (o, v) ->
@@ -198,7 +220,30 @@ struct
 	| SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
 	| SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true s v) (String.concat ", " (List.map (svalue s) vl))
 
-  and sobj s { attrs ; props } = "object"
+  and sobj s { attrs ; props } =
+    if IdMap.is_empty props then
+      sprintf "{[%s]}" (sattrs s attrs)
+    else
+      sprintf "{[%s]\n%s}" (sattrs s attrs) (sprops s props)
+  and sattrs s attrs =
+    let unit_attr (attr, v) =
+      sprintf "%s: %s" attr (svalue s v)
+    in
+    attrs |> IdMap.bindings |> List.map unit_attr |> String.concat ", "
+  and spropattrs ?(sep="") s attrs =
+    let unit_attr (attr, v) =
+      sprintf "%s: %s" (LambdaJS.Syntax.string_of_attr attr) (svalue s v)
+    in
+    attrs |> LambdaJS.Syntax.AttrMap.bindings |> List.map unit_attr |> String.concat ",\n"
+  and spropattr_value s sattrs = match LambdaJS.Syntax.AttrMap.find_opt LambdaJS.Syntax.Value sattrs with
+  | None -> "attrs"
+  | Some v -> sprintf "#value: %s" (svalue s v)
+  and sprops s props =
+    let unit_prop (prop_id, attrs) =
+      sprintf "%s: {%s}" prop_id (spropattr_value s attrs)
+      (* sprintf "%s: {%s}" prop_id (spropattrs ~sep:"\n" s attrs) *)
+    in
+    props |> IdMap.bindings |> List.map unit_prop |> String.concat ",\n"
 
   let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
@@ -225,7 +270,13 @@ struct
     | pl -> String.concat " /\\ " (List.rev_map (predicate ~brackets:true s) pl)
 
   let env s env = ""
-  let heap heap = ""
+  let heap ?labs s heap =
+    let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (sobj s v))::l in
+    let unit_lab = match labs with
+    | None -> add_lab
+    | Some labs -> fun lab v l -> if LabelSet.mem lab labs then add_lab lab v l else l
+    in
+    SHeap.fold unit_lab heap [] |> String.concat "\n"
   let res_rsvalue s rv = ""
   let res_exn s = function
     | Some e -> exn s e
@@ -233,7 +284,7 @@ struct
   let io s sio = SIO.to_string (svalue s) sio
 
   let state s =
-    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
+    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs:(collect_labels s (SIO.values s.io)) s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
