@@ -35,7 +35,7 @@ struct
 
 end
 
-module Effects :
+module SIO :
 sig
   type 'a t
   val empty : 'a t
@@ -49,7 +49,7 @@ struct
 
   let to_string alpha_to_string = List.rev_map alpha_to_string @> String.concat "\n"
 
-  let print x eff = x::eff
+  let print x sio = x::sio
 end
 
 
@@ -78,7 +78,7 @@ type 'a pathcondition = 'a predicate list (* big And *)
 
 type 'a env = 'a IdMmap.t
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; effects : 'a Effects.t }
+type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t }
 
 type 'a sstate = (svalue, 'a) state
 and svalue =
@@ -101,7 +101,7 @@ type senv = svalue env
 
 let true_pathcondition : spathcondition = []
 let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = true_pathcondition ; env = empty_env ; heap = SHeap.empty ; res = x ; exn = None ; effects = Effects.empty }
+let make_empty_sstate x = { pc = true_pathcondition; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty }
 let empty_sstate = make_empty_sstate ()
 
 
@@ -173,14 +173,16 @@ struct
   let res_exn s = function
     | Some e -> exn s e
     | None -> ""
-  let effects s eff = Effects.to_string (svalue s) eff
+  let io s sio = SIO.to_string (svalue s) sio
 
   let state s =
-    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "effects", effects s s.effects]
+    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
 
-  let state_list sl = String.concat "\n\n" (List.map state sl)
+  let state_list = function
+    | [] -> "NO STATE"
+    | sl -> sl |> List.map state |> String.concat "\n\n"
 
 end

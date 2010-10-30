@@ -8,7 +8,7 @@ let errl s msg = [err s msg]
 
 (* Unary operators *)
 
-let print v s = [{ s with effects = Effects.print v s.effects }]
+let print v s = [{ s with io = SIO.print v s.io }]
 
 let err_op1 ~pos ~op _ s = errl s (sprintf "%s\nError [xeval] No implementation of unary operator \"%s\"" (pretty_position pos) op)
 
