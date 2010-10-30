@@ -45,7 +45,6 @@ struct
   let inputs = ref []
 
   (* options and their default values *)
-  let opt_desugar = ref true
   let opt_eval = ref false
   let opt_features = ref false
   let opt_pretty = ref false
@@ -55,7 +54,6 @@ struct
   let ifoption opt_ref f x = if !opt_ref then f x else x
 
   (* need OCaml 3.12 to get rid of f x ? *)
-  let if_desugar f x  = ifoption opt_desugar f x
   let if_eval f x = ifoption opt_eval f x
   let if_features f x = ifoption opt_features f x
   let if_pretty f x = ifoption opt_pretty f x
@@ -72,7 +70,6 @@ struct
     in
     let boolspeclist =
       [
-	"desugar", opt_desugar, "desugaring of code";
 	"eval", opt_eval, "evaluation of code";
 	"features", opt_features, "listing of used features";
 	"pretty", opt_pretty, "pretty printing of code";
@@ -96,32 +93,9 @@ struct
 
 end
 
-module LJS =
-struct
-
-  type raw_ljs = LambdaJS.Syntax.raw_exp
-  type fine_ljs = LambdaJS.Syntax.fine_exp
-  type ljs = RawLJS of raw_ljs | FineLJS of fine_ljs
-
-  (* let raw_of_fine (e : fine_ljs) = (e :> raw_ljs) *)
-  let fine = function
-    | RawLJS e -> LambdaJS.Syntax.fine_of_raw e
-    | FineLJS e -> e
-  let raw = function
-    | RawLJS e -> e
-    | FineLJS e -> LambdaJS.Syntax.raw_of_fine e
-
-  let dummy_pos = LambdaJS.Prelude.dummy_pos
-
-  let empty_ljs = FineLJS
-    (LambdaJS.Syntax.EConst (dummy_pos, JS.Syntax.CUndefined))
-
-end
 
 module Parsers =
 struct
-
-  open LJS
 
   let try_parse parse lexe lexbuf f =
     let curpos lexbuf =
@@ -142,40 +116,17 @@ struct
     | Inputs.String (fname, s) -> fname, Lexing.from_string s
     in
     lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fname };
-    let eseq ljs1 ljs2 = match ljs1, ljs2 with
-    | FineLJS e1, FineLJS e2 -> FineLJS (LambdaJS.Syntax.ESeq (dummy_pos, e1, e2))
-    | _, _ -> let e1 = raw ljs1 and e2 = raw ljs2 in
-      RawLJS (LambdaJS.Syntax.ESeq (dummy_pos, e1, e2))
+    let eseq ljs1 ljs2 =
+      LambdaJS.Syntax.ESeq (LambdaJS.Prelude.dummy_pos, ljs1, ljs2)
     in
     match code_type with
-    | Inputs.JS ->
-	let from_js js =
-	  js
-          |> JS.Interm.from_javascript
-          |> LambdaJS.Desugar.ds_top
-	  |> (fun rawljs -> if !Options.opt_desugar then
-		FineLJS (LambdaJS.Desugar.desugar rawljs)
-	      else
-		RawLJS rawljs)
-	  |> eseq prev_ljs
-	in
-	try_parse JS.Parser.program JS.Lexer.token lexbuf from_js
-    | Inputs.LJS ->
-	let from_ljs fineljs =
-	  fineljs
-          |> Options.if_desugar (LambdaJS.Syntax.raw_of_fine @> LambdaJS.Desugar.desugar)
-	  |> (fun x -> FineLJS x)
-	  |> eseq prev_ljs
-	in
-	try_parse LambdaJS.Parser.prog LambdaJS.Lexer.token lexbuf from_ljs
-    | Inputs.Env ->
-	let tp env = try_parse LambdaJS.Parser.env LambdaJS.Lexer.token lexbuf env in
-	match prev_ljs with
-	| FineLJS e -> tp (fun env -> FineLJS (env e))
-	| RawLJS e -> tp (fun env -> RawLJS (env e))
+    | Inputs.JS -> try_parse JS.Parser.program JS.Lexer.token lexbuf (JS.Interm.from_javascript @> LambdaJS.Desugar.ds_top @> eseq prev_ljs)
+    | Inputs.LJS -> try_parse LambdaJS.Parser.prog LambdaJS.Lexer.token lexbuf (LambdaJS.Syntax.raw_of_fine @> eseq prev_ljs)
+    | Inputs.Env -> try_parse LambdaJS.Parser.env LambdaJS.Lexer.token lexbuf ((|>) prev_ljs)
 
   let from_inputs input_list =
-    List.fold_right from_input input_list empty_ljs
+    LambdaJS.Syntax.EConst (LambdaJS.Prelude.dummy_pos, JS.Syntax.CUndefined)
+    |> List.fold_right from_input input_list
 
 end
 
@@ -184,24 +135,34 @@ let main () =
   Options.arg_parse ();
   if !Options.inputs = [] then
     Options.error_usage "No input";
-  if !Options.opt_desugar && List.for_all (function (Inputs.Env, _) -> false | _ -> true) !Options.inputs then
+  if List.for_all (function (Inputs.Env, _) -> false | _ -> true) !Options.inputs then
     warning "Desugaring without environment";
-  let ljs = Parsers.from_inputs (!Options.inputs) in
+  let raw_ljs = Parsers.from_inputs (!Options.inputs) in
+  let fine_ljs = LambdaJS.Desugar.desugar raw_ljs in
+  let raw_ljs = LambdaJS.Syntax.raw_of_fine fine_ljs in
   if !Options.opt_pretty then begin
-    LambdaJS.Pretty.exp (LJS.raw ljs) Prelude.Format.std_formatter;
+    LambdaJS.Pretty.exp raw_ljs Prelude.Format.std_formatter;
     print_newline ();
   end;
   if !Options.opt_features then begin
-    let m = FeaturesList.of_exp (LJS.raw ljs) in
+    let m = FeaturesList.of_exp raw_ljs in
     print_endline (FeaturesList.Pretty.string_of_map ~sort_max:true m);
   end;
   if !Options.opt_eval then begin
-    let _ = LambdaJS.Eval.eval_expr (LJS.fine ljs) in
+    let _ = LambdaJS.Eval.eval_expr fine_ljs in
     print_newline ();
   end;
   if !Options.opt_xeval then
-    let sl = XEval.xeval (LJS.fine ljs) SymbolicState.empty_sstate in
+    let sl = XEval.xeval fine_ljs SymbolicState.empty_sstate in
     print_endline (SymbolicState.ToString.state_list sl)
 
 let _ =
-  main ()
+  Printexc.record_backtrace true;
+  let _ = try main () with
+    e ->
+      print_endline (Printexc.to_string e);
+      Printexc.print_backtrace stdout
+  in
+  (* pp_print_flush std_formatter (); *)
+  (* pp_print_flush err_formatter (); *)
+  ()
