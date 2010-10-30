@@ -241,10 +241,17 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       xeval4 unit_update obj f v args s
   | EGetFieldSurface(pos, obj, f, args) ->
       let unit_get obj_value f_value args_value s =
+	let make_err s = sprintf "%s\nError [xeval] Get field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value) in
 	match obj_value, f_value with
 	| SHeapLabel _, SConst (CString f) ->
 	    get_field ~pos obj_value obj_value f args_value s
-	| _ -> errl s (sprintf "%s\nError [xeval] Get field didn't get an object and a string. Instead it got %s and %s." (pretty_position pos) (ToString.svalue s obj_value) (ToString.svalue s f_value))
+	| SId _, SConst (CString _) ->
+	    (* TODO: primitive? is not the opposite of obj? that should be used here *)
+	    resl_rv_if s
+	      (SOp1("primitive?", obj_value))
+	      (SExn (SError (make_err s)))
+              (SValue (SOp2("get_field", obj_value, f_value)))
+	| _ -> errl s (make_err s)
       in
       xeval3 unit_get obj f args s
   | EDeleteField(pos, obj, f) ->

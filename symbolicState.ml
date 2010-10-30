@@ -8,11 +8,13 @@ open MyPervasives
 module SId :
 sig
   type t
+  val from_string : string -> t
   val to_string : t -> string
 end =
 struct
-  type t
-  let to_string _ = "symbolic-id"
+  type t = string
+  let from_string s = s
+  let to_string t = sprintf "@%s" t
 end
 
 module HeapLabel :

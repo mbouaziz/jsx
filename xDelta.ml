@@ -67,24 +67,78 @@ let float_str = LambdaJS.Delta.float_str
 
 (* Unary operators *)
 
-let print v s = [{ s with io = SIO.print v s.io }]
+let prim_to_str v s = match v with
+| SConst c ->
+    let resl_str str_v = resl_v s (str str_v) in
+    begin match c with
+    | CUndefined -> resl_str "undefined"
+    | CNull -> resl_str "null"
+    | CString x -> resl_str x
+    | CNum n -> resl_str (float_str n)
+    | CInt n -> resl_str (string_of_int n)
+    | CBool b -> resl_str (string_of_bool b)
+    | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
+    end
+| SId _ -> resl_v s (SOp1("prim->str", v))
+| _ -> resl_e s (SThrow (str "prim_to_str"))
 
-let err_op1 ~pos ~op _ s = errl s (sprintf "%s\nError [xeval] No implementation of unary operator \"%s\"" (pretty_position pos) op)
+let is_callable v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    begin match IdMap.find_opt "code" attrs with
+    | Some (SClosure _) -> resl_v s strue
+    | _ -> resl_v s sfalse
+    end
+| SId _ -> resl_v s (SOp1("is-callable", v))
+| _ -> resl_v s sfalse
 
-let op1 ~pos = function
+let is_primitive v s = match v with
+| SConst _ -> resl_v s strue
+| SId _ -> resl_v_if s (SOp1("primitive?", v)) strue sfalse
+| _ -> resl_v s sfalse
+
+let print v s = resl_f s (SIO.print v)
+
+let symbol v s = match v with
+| SConst (CString sid) -> resl_v s (SId (SId.from_string sid))
+| SConst (CInt n) -> resl_v s (SId (SId.from_string (string_of_int n)))
+| _ -> errl s "Error [symbol] Please, don't do stupid thing with symbolic id"
+
+
+let err_op1 ~op _ s = errl s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
+
+let op1 ~pos op v s =
+  let f = match op with
+  | "is-callable" -> is_callable
+  | "prim->str" -> prim_to_str
+  | "primitive?" -> is_primitive
   | "print" -> print
-  | op -> err_op1 ~pos ~op
+  | "symbol" -> symbol
+  | op -> err_op1 ~op
+  in
+  s |> f v |> List.map (state_pretty_error ~pos)
 
 (* Binary operators *)
 
-let err_op2 ~pos ~op _ _ s = errl s (sprintf "%s\nError [xeval] No implementation of binary operator \"%s\"" (pretty_position pos) op)
+let arith_lt x y s =
+  let make x y s = resl_v s (bool (x < y)) in
+  xdelta2 (to_float x) (to_float y) make [s]
 
-let op2 ~pos = function
-  | op -> err_op2 ~pos ~op
+let err_op2 ~op _ _ s = errl s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
+
+let op2 ~pos op v1 v2 s =
+  let f = match op with
+  | "<" -> arith_lt
+  | op -> err_op2 ~op
+  in
+  s |> f v1 v2 |> List.map (state_pretty_error ~pos)
 
 (* Ternary operators *)
 
-let err_op3 ~pos ~op _ _ _ s = errl s (sprintf "%s\nError [xeval] No ternary operators yet, so what's this \"%s\"" (pretty_position pos) op)
+let err_op3 ~op _ _ _ s = errl s (sprintf "Error [xeval] No ternary operators yet, so what's this \"%s\"" op)
 
-let op3 ~pos = function
-  | op -> err_op3 ~pos ~op
+let op3 ~pos op v1 v2 v3 s =
+  let f = match op with
+  | op -> err_op3 ~op
+  in
+  s |> f v1 v2 v3 |> List.map (state_pretty_error ~pos)
