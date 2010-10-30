@@ -5,8 +5,7 @@ open JS.Syntax
 open LambdaJS.Syntax
 open SymbolicState
 
-
-let errl = XDelta.errl
+open XDelta.ResHelpers
 
 
 let apply ~pos func args s =

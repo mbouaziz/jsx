@@ -1,4 +1,5 @@
 
+module Delta = Es5_delta
 module Desugar = Es5_desugar
 module Eval = Es5_eval
 module Lexer = Es5_lexer
