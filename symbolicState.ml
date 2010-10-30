@@ -80,6 +80,10 @@ type 'a env = 'a IdMmap.t
 
 type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t }
 
+type ('a, 'b) rvalue =
+  | SValue of 'a
+  | SExn of 'b
+
 type 'a sstate = (svalue, 'a) state
 and svalue =
   | SConst of sconst
@@ -90,9 +94,7 @@ and svalue =
   | SOp2 of string * svalue * svalue
   | SOp3 of string * svalue * svalue * svalue
   (* | SApp of svalue * svalue list *)
-and srvalue =
-  | SValue of svalue
-  | SExn of svalue sexn
+and srvalue = (svalue, svalue sexn) rvalue
 
 type vsstate = srvalue sstate
 type senv = svalue env
@@ -137,6 +139,19 @@ let sfalse = SConst (JS.Syntax.CBool false)
 
 
 let make_closure f s = f { s with res = () }
+
+
+let value_opt = function
+  | SValue v -> Some v
+  | SExn _ -> None
+let check_exn f s =
+  match s.exn with
+  | Some exn -> [{ s with res = SExn exn }]
+  | None -> f s
+let do_no_exn f s =
+  match s.res with
+  | SValue v -> f v s
+  | SExn _ -> [s]
 
 
 module Pretty = (* output a printer *)

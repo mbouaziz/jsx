@@ -6,20 +6,6 @@ open LambdaJS.Syntax
 open SymbolicState
 
 
-let value_opt = function
-  | SValue v -> Some v
-  | SExn _ -> None
-
-let check_exn f s =
-  match s.exn with
-  | Some exn -> [{ s with res = SExn exn }]
-  | None -> f s
-
-let do_no_exn f s =
-  match s.res with
-  | SValue v -> f v s
-  | SExn _ -> [s]
-
 let errl = XDelta.errl
 
 
