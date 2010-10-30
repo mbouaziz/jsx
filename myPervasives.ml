@@ -4,15 +4,15 @@ open LambdaJS.Prelude
 let (|>) x f = f x
 let (@>) f g x = g (f x)
 
-let sprintf = Printf.sprintf
 
-let pretty_position (p, e) =
-  let open Lexing in
-  sprintf "File \"%s\", line %d, characters %d-%d:" p.pos_fname p.pos_lnum (p.pos_cnum - p.pos_bol) (e.pos_cnum - e.pos_bol)
+module Char =
+struct
+  include Char
 
-let warning msg =
-  prerr_endline (sprintf "Warning: %s" msg)
-
+  let is_alpha = function
+    | 'a'..'z' | 'A'..'Z' -> true
+    | _ -> false
+end
 
 module List =
 struct
@@ -59,3 +59,13 @@ end
 module StringMap = Map.Make(String)
 
 module IdMmap = MultiMap.Make(IdOrderedType)
+
+
+let sprintf = Printf.sprintf
+
+let pretty_position (p, e) =
+  let open Lexing in
+  sprintf "File \"%s\", line %d, characters %d-%d:" p.pos_fname p.pos_lnum (p.pos_cnum - p.pos_bol) (e.pos_cnum - e.pos_bol)
+
+let warning msg =
+  prerr_endline (sprintf "Warning: %s" msg)
