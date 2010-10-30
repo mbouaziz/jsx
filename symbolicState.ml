@@ -178,8 +178,16 @@ struct
       | SClosure _ -> "function"
       | SHeapLabel hl -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.find hl s.heap)))
     | SId id -> SId.to_string id
-    | SOp1 (o, v) -> enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
-    | SOp2 (o, v1, v2) -> enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
+    | SOp1 (o, v) ->
+	if Char.is_alpha o.[0] then
+	  sprintf "%s(%s)" o (svalue s v)
+	else
+	  enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
+    | SOp2 (o, v1, v2) ->
+	if Char.is_alpha o.[0] then
+	  sprintf "%s(%s, %s)" o (svalue s v1) (svalue s v2)
+	else
+	  enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
     | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
 
   and sobj s { attrs ; props } = "object"
@@ -206,7 +214,7 @@ struct
   let pathcondition s = function
     | [] -> "True"
     | [p] -> predicate s p
-    | pl -> String.concat "/\\" (List.map (predicate ~brackets:true s) pl)
+    | pl -> String.concat " /\\ " (List.rev_map (predicate ~brackets:true s) pl)
 
   let env s env = ""
   let heap heap = ""
