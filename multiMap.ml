@@ -50,6 +50,7 @@ struct
 
   let pop k m = match try Some (M.find k m) with Not_found -> None with
   | None -> m
+  | Some [_] -> M.remove k m
   | Some v -> M.add k (List.tl v) m
 
   let pop_all = M.remove
