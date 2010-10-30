@@ -245,12 +245,12 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	match obj_value, f_value with
 	| SHeapLabel _, SConst (CString f) ->
 	    get_field ~pos obj_value obj_value f args_value s
-	| SId _, SConst (CString _) ->
+	| SSymb _, SConst (CString _) ->
 	    (* TODO: primitive? is not the opposite of obj? that should be used here *)
 	    resl_rv_if s
-	      (SOp1("primitive?", obj_value))
+              (Mk.sop1 "primitive?" obj_value)
 	      (SExn (SError (make_err s)))
-              (SValue (SOp2("get_field", obj_value, f_value)))
+              (SValue (Mk.sop2 "get_field" obj_value f_value))
 	| _ -> errl s (make_err s)
       in
       xeval3 unit_get obj f args s
@@ -303,6 +303,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| SHeapLabel _, [this; args] -> apply_obj ~pos func_value this args s
 	| SClosure _, _ -> apply ~pos func_value args_values s
 	| SHeapLabel _, _ -> errl s (sprintf "%s\nError [xeval] Need to provide this and args for a call to a function object" (pretty_position pos))
+	| SSymb _, _ -> resl_v s (Mk.sapp func_value args_values)
 	| _, _ -> errl s (sprintf "%s\nError [xeval] Inapplicable value: %s, applied to %s." (pretty_position pos) (ToString.svalue s func_value) (ToString.svalue_list s args_values))
       in
       let unit_xeval_args_and_apply v s =

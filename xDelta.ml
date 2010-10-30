@@ -27,9 +27,24 @@ struct
     else
       res_e s (SError msg)
   let errl s msg = [err s msg]
+
+  module Mk =
+  struct
+
+    let bool b = SConst (CBool b)
+    let num f = SConst (CNum f)
+    let str x = SConst (CString x)
+    let throw msg = SThrow (dummy_pos, msg)
+    let sop1 o v = SSymb (SOp1(o, v))
+    let sop2 o v1 v2 = SSymb (SOp2(o, v1, v2))
+    let sop3 o v1 v2 v3 = SSymb (SOp3(o, v1, v2, v3))
+    let sapp v vl = SSymb (SApp(v, vl))
+    let sid id = SSymb (SId id)
+  end
 end
 
 open ResHelpers
+open Mk
 
 let state_pretty_error ~pos s = match s with
   | { res = SExn (SError msg) ; _ } -> err s (sprintf "%s\n%s" (pretty_position pos) msg)
@@ -51,11 +66,6 @@ let xdelta2 f1 f2 g sl =
   | SExn _ as res -> [{ s with res }]
   in
   sl |> List.map f1 |> List.flatten |^ f2 |> List.map g' |> List.flatten
-
-let bool b = SConst (CBool b)
-let num f = SConst (CNum f)
-let str x = SConst (CString x)
-let throw msg = SThrow (dummy_pos, msg)
 
 let to_float x s = match x with
 | SConst (CInt n) -> resl_v s (float_of_int n)
@@ -80,7 +90,7 @@ let prim_to_str v s = match v with
     | CBool b -> resl_str (string_of_bool b)
     | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
     end
-| SId _ -> resl_v s (SOp1("prim->str", v))
+| SSymb _ -> resl_v s (sop1 "prim->str" v)
 | _ -> resl_e s (throw (str "prim_to_str"))
 
 let is_callable v s = match v with
@@ -90,19 +100,19 @@ let is_callable v s = match v with
     | Some (SClosure _) -> resl_v s strue
     | _ -> resl_v s sfalse
     end
-| SId _ -> resl_v s (SOp1("is-callable", v))
+| SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
 
 let is_primitive v s = match v with
 | SConst _ -> resl_v s strue
-| SId _ -> resl_v_if s (SOp1("primitive?", v)) strue sfalse
+| SSymb _ -> resl_v_if s (sop1 "primitive?" v) strue sfalse
 | _ -> resl_v s sfalse
 
 let print v s = resl_f s (SIO.print v)
 
 let symbol v s = match v with
-| SConst (CString sid) -> resl_v s (SId (SId.from_string sid))
-| SConst (CInt n) -> resl_v s (SId (SId.from_string (string_of_int n)))
+| SConst (CString id) -> resl_v s (sid (SId.from_string id))
+| SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
 | _ -> errl s "Error [symbol] Please, don't do stupid thing with symbolic id"
 
 

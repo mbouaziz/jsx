@@ -93,11 +93,13 @@ and svalue =
   | SConst of sconst
   | SClosure of (svalue list -> unit sstate -> srvalue sstate list)
   | SHeapLabel of sheaplabel
+  | SSymb of ssymb
+and ssymb =
   | SId of sid
   | SOp1 of string * svalue
   | SOp2 of string * svalue * svalue
   | SOp3 of string * svalue * svalue * svalue
-  (* | SApp of svalue * svalue list *)
+  | SApp of svalue * svalue list
 and srvalue = (svalue, svalue sexn) rvalue
 
 type vsstate = srvalue sstate
@@ -181,18 +183,20 @@ struct
       | SConst c -> const c
       | SClosure _ -> "function"
       | SHeapLabel hl -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.find hl s.heap)))
-    | SId id -> SId.to_string id
-    | SOp1 (o, v) ->
-	if Char.is_alpha o.[0] then
-	  sprintf "%s(%s)" o (svalue s v)
-	else
-	  enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
-    | SOp2 (o, v1, v2) ->
-	if Char.is_alpha o.[0] then
-	  sprintf "%s(%s, %s)" o (svalue s v1) (svalue s v2)
-	else
-	  enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
-    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
+      | SSymb symb -> match symb with
+	|SId id -> SId.to_string id
+	| SOp1 (o, v) ->
+	    if Char.is_alpha o.[0] then
+	      sprintf "%s(%s)" o (svalue s v)
+	    else
+	      enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
+	| SOp2 (o, v1, v2) ->
+	    if Char.is_alpha o.[0] then
+	      sprintf "%s(%s, %s)" o (svalue s v1) (svalue s v2)
+	    else
+	      enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
+	| SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
+	| SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true s v) (String.concat ", " (List.map (svalue s) vl))
 
   and sobj s { attrs ; props } = "object"
 
