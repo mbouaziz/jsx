@@ -282,8 +282,14 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   | EOp3(pos, `Prim3 op, e1, e2, e3) -> xeval3 (XDelta.op3 ~pos op) e1 e2 e3 s
   | EIf(pos, c, t, e) ->
       let unit_if rv s =
-	let sl_t = xeval t { s with pc = (PredVal rv)::s.pc } in
-	let sl_e = xeval e { s with pc = (PredNotVal rv)::s.pc } in
+	let sl_t = match PathCondition.add (PredVal rv) s.pc with
+	| Some pc -> xeval t { s with pc }
+	| None -> []
+	in
+	let sl_e = match PathCondition.add (PredNotVal rv) s.pc with
+	| Some pc -> xeval e { s with pc }
+	| None -> []
+	in
 	sl_t@sl_e
       in
       xeval1 unit_if c s

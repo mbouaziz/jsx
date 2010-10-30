@@ -95,20 +95,46 @@ and srvalue =
   | SExn of svalue sexn
 
 type vsstate = srvalue sstate
-type spathcondition = svalue pathcondition
 type senv = svalue env
 
 
-let true_pathcondition : spathcondition = []
-let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = true_pathcondition; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty }
-let empty_sstate = make_empty_sstate ()
 
+module PathCondition =
+struct
+  open JS.Syntax
+
+  type t = svalue pathcondition
+
+  let pc_true : t = []
+
+  let opp = function
+    | PredVal x -> PredNotVal x
+    | PredNotVal x -> PredVal x
+
+  let add p pc = match p with
+  | PredVal (SConst (CBool true)) -> Some pc
+  | PredVal (SConst (CBool false)) -> None
+  | PredNotVal (SConst (CBool true)) -> None
+  | PredNotVal (SConst (CBool false)) -> Some pc
+  | p ->
+      if List.mem p pc then
+	Some pc
+      else if List.mem (opp p) pc then
+	None
+      else
+	Some (p::pc)
+end
+
+
+let empty_env : senv = IdMmap.empty
+let make_empty_sstate x = { pc = PathCondition.pc_true; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty }
+let empty_sstate = make_empty_sstate ()
 
 
 let sundefined = SConst JS.Syntax.CUndefined
 let strue = SConst (JS.Syntax.CBool true)
 let sfalse = SConst (JS.Syntax.CBool false)
+
 
 let make_closure f s = f { s with res = () }
 
