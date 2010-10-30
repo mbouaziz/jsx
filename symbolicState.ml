@@ -67,8 +67,10 @@ type 'a sheap = 'a sobj SHeap.t
 
 type err = string
 
-type 'a sexn = | SBreak of LambdaJS.Values.label * 'a
-	       | SThrow of 'a
+type pos = Lexing.position * Lexing.position
+
+type 'a sexn = | SBreak of pos * (LambdaJS.Values.label * 'a)
+	       | SThrow of pos * 'a
 	       | SError of err
 
 type 'a predicate =
@@ -201,8 +203,8 @@ struct
   let err s e = e
 
   let exn s = function
-    | SBreak(l, v) -> sprintf "Break(%s, %s)" (label l) (svalue s v)
-    | SThrow v -> sprintf "Throw(%s)" (svalue s v)
+    | SBreak(pos,(l, v)) -> sprintf "%s\nBreak(%s, %s)" (pretty_position pos) (label l) (svalue s v)
+    | SThrow(pos,v) -> sprintf "%s\nThrow(%s)" (pretty_position pos) (svalue s v)
     | SError e -> err s e
 
   let srvalue s = function

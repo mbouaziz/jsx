@@ -55,11 +55,12 @@ let xdelta2 f1 f2 g sl =
 let bool b = SConst (CBool b)
 let num f = SConst (CNum f)
 let str x = SConst (CString x)
+let throw msg = SThrow (dummy_pos, msg)
 
 let to_float x s = match x with
 | SConst (CInt n) -> resl_v s (float_of_int n)
 | SConst (CNum n) -> resl_v s n
-| _ -> resl_e s (SThrow (str (sprintf "expected number, got %s" (ToString.svalue s x))))
+| _ -> resl_e s (throw (str (sprintf "expected number, got %s" (ToString.svalue s x))))
 
 
 let float_str = LambdaJS.Delta.float_str
@@ -80,7 +81,7 @@ let prim_to_str v s = match v with
     | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
     end
 | SId _ -> resl_v s (SOp1("prim->str", v))
-| _ -> resl_e s (SThrow (str "prim_to_str"))
+| _ -> resl_e s (throw (str "prim_to_str"))
 
 let is_callable v s = match v with
 | SHeapLabel label ->
