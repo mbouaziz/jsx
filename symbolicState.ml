@@ -174,7 +174,7 @@ struct
   let const = let open JS.Syntax in function
     | CInt x -> string_of_int x
     | CNum x -> string_of_float x
-    | CString x -> sprintf "\"%s\"" x
+    | CString x -> sprintf "\"%S\"" x
     | CBool x -> string_of_bool x
     | CUndefined -> "undefined"
     | CNull -> "null"
