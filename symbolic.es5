@@ -1,4 +1,3 @@
-let [[symbol]] = function(s) {return prim("symbol",s)}
 {
-	global["symbol" = symbol]
+	global["symbol" = function(s) {return prim("symbol",s)}]
 }
