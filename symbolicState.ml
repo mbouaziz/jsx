@@ -1,7 +1,6 @@
 
 open LambdaJS.Prelude
 open MyPervasives
-(* open SymbolicValue *)
 
 
 
@@ -135,6 +134,14 @@ struct
 	None
       else
 	Some (p::pc)
+
+  let predval = function
+    | PredVal v
+    | PredNotVal v -> v
+
+  let rec values = function
+    | [] -> []
+    | p::pc -> (predval p)::(values pc)
 end
 
 
@@ -174,14 +181,14 @@ struct
   let const = let open JS.Syntax in function
     | CInt x -> string_of_int x
     | CNum x -> string_of_float x
-    | CString x -> sprintf "\"%S\"" x
+    | CString x -> sprintf "%S" x
     | CBool x -> string_of_bool x
     | CUndefined -> "undefined"
     | CNull -> "null"
     | CRegexp (re, g, i) -> sprintf "/%s/%s%s" re (if g then "g" else "") (if i then "i" else "")
 
   (* Collect only labels that will be printed by svalue AND by svalue of SHeap.find of these labels *)
-  let collect_labels { heap ; _ } vl =
+  let collect_labels { heap ; _ } vl labs =
     let rec aux v labs = match v with
     | SConst _ -> labs
     | SHeapLabel l -> labs |> LabelSet.add l |> aux_obj (SHeap.find l heap)
@@ -196,7 +203,7 @@ struct
     and aux_map1 : 'a. 'a -> _ = fun _ -> aux
     and aux_map2 _ am = LambdaJS.Syntax.AttrMap.fold aux_map1 am
     in
-    List.fold_right aux vl LabelSet.empty
+    List.fold_right aux vl labs
 
   let rec svalue ?(deep=false) ?(brackets=false) s =
     let enclose x = if brackets then sprintf "(%s)" x else x in
@@ -283,14 +290,30 @@ struct
     | None -> ""
   let io s sio = SIO.to_string (svalue s) sio
 
+  (* these X_values functions should correspond to what is printed with res_X *)
+  let env_values _ = []
+  let rvalue_values _ = []
+  let exn_values = function
+    | Some (SBreak(_,(_,v)))
+    | Some (SThrow(_,v)) -> [v]
+    | Some (SError _)
+    | None -> []
+
   let state s =
-    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs:(collect_labels s (SIO.values s.io)) s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
+    let labs = LabelSet.empty
+    |> collect_labels s (PathCondition.values s.pc)
+    |> collect_labels s (env_values s.env)
+    |> collect_labels s (rvalue_values s.res)
+    |> collect_labels s (exn_values s.exn)
+    |> collect_labels s (SIO.values s.io)
+    in
+    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
 
   let state_list = function
-    | [] -> "NO STATE"
+    | [] -> "NO STATE???"
     | sl -> sl |> List.map state |> String.concat "\n\n"
 
 end
