@@ -184,10 +184,10 @@ let set_attr ~pos attr obj field newval s =
 
 let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   let xeval_nocheck s = match exp with
-  | EConst(_, c) -> [{ s with res = SValue (SConst c) }]
+  | EConst(_, c) -> resl_v s (SConst c)
   | EId(pos, x) ->
       begin match IdMmap.find_opt x s.env with
-      | Some sval -> [{ s with res = SValue sval }]
+      | Some sval -> resl_v s sval
       | None -> errl s (sprintf "%s\nError: [xeval] Unbound identifier: %s in identifier lookup" (pretty_position pos) x)
       end
   | ESet(pos, x, e) ->
@@ -289,15 +289,15 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       let xeval_arg sl arg =
 	let unit_xeval_arg s =
 	  let unit_add s' = match s'.res with
-	  | SValue v -> { s' with res = fst s.res, v::(snd s.res) }
+	  | SValue v -> { s' with res = v::s.res }
 	  | SExn _ -> { s' with res = s.res }
 	  in
 	  s |> xeval arg |> List.map unit_add
 	in
 	sl |> List.map unit_xeval_arg |> List.flatten
       in
-      let unit_apply s =
-	let func_value, args_values_rev = s.res in
+      let unit_apply func_value s =
+	let args_values_rev = s.res in
 	let args_values = List.rev args_values_rev in
 	match func_value, args_values with
 	| SHeapLabel _, [this; args] -> apply_obj ~pos func_value this args s
@@ -307,8 +307,8 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| _, _ -> errl s (sprintf "%s\nError [xeval] Inapplicable value: %s, applied to %s." (pretty_position pos) (ToString.svalue s func_value) (ToString.svalue_list s args_values))
       in
       let unit_xeval_args_and_apply v s =
-	List.fold_left xeval_arg [{ s with res = v, [] }] args
-        |> List.map (check_exn unit_apply)
+	List.fold_left xeval_arg [{ s with res = [] }] args
+        |> List.map (check_exn (unit_apply v))
 	|> List.flatten
       in
       xeval1 unit_xeval_args_and_apply func s
