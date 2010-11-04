@@ -216,7 +216,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       let xeval_prop (name, attrs) sl =
 	let unit_xeval_prop s =
 	  [{s with res = AttrMap.empty}]
-          |> List.fold_right xeval_prop_attr attrs
+          |> List.fold_leftr xeval_prop_attr attrs
 	  |> List.map (fun s' -> {s' with res = { s.res with props = IdMap.add name s'.res s.res.props }})
 	in
 	sl |> List.map unit_xeval_prop |> List.flatten
@@ -226,9 +226,9 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	[{ s with heap = SHeap.add label s.res s.heap ; res = SValue (SHeapLabel label) }]
       in
       [{ s with res = IdMap.empty }]
-      |> List.fold_right xeval_obj_attr attrs
+      |> List.fold_leftr xeval_obj_attr attrs
       |> List.map (fun s -> { s with res = { attrs = s.res ; props = IdMap.empty }})
-      |> List.fold_right xeval_prop props
+      |> List.fold_leftr xeval_prop props
       |> List.map (check_exn make_object)
       |> List.flatten
   | EUpdateFieldSurface(pos, obj, f, v, args) ->
@@ -370,9 +370,9 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  arity_mismatch_err args s
 	else
 	  s
-          |> List.fold_right2 set_arg args xl
+          |> List.fold_leftr2 set_arg args xl
 	  |> xeval e
-	  |> List.map (List.fold_right unset_arg xl)
+	  |> List.map (List.fold_leftr unset_arg xl)
       in
       [{ s with res = SValue (SClosure lambda) }]
   in

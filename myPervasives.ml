@@ -23,6 +23,15 @@ struct
     | h::t -> match f h with
       | Some x -> x::(filter_map f t)
       | None -> filter_map f t
+
+  (* fold_left but with fold_right syntax *)
+  let fold_leftr f l acc =
+    let f' a x = f x a in
+    fold_left f' acc l
+
+  let fold_leftr2 f l1 l2 acc =
+    let f' a x1 x2 = f x1 x2 a in
+    fold_left2 f' acc l1 l2
 end
 
 
