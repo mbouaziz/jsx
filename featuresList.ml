@@ -64,29 +64,6 @@ struct
   let inc e t = _inc (FExp e) t
 
   let inc_attr a t = _inc (FAttr a) t
-
-  (* remove if OCaml >= 3.12.0 *)
-  let bindings m = List.rev (fold (fun k v l -> (k, v)::l) m [])
-
-  let merge f m1 m2 =
-    let b1 = bindings m1 in
-    let b2 = bindings m2 in
-    let concatf k o1 o2 l = match f k o1 o2 with
-    | None -> l
-    | Some v -> (k, v)::l
-    in
-    let rec aux l1 l2 = match l1, l2 with
-      | [], [] -> []
-      | (k, v1)::t1, [] -> concatf k (Some v1) None (aux t1 [])
-      | [], (k, v2)::t2 -> concatf k None (Some v2) (aux [] t2)
-      | (k1, v1)::t1, (k2, v2)::t2 ->
-	  match Feature.compare k1 k2 with
-	  | 0 -> concatf k1 (Some v1) (Some v2) (aux t1 t2)
-	  | x when x < 0 -> concatf k1 (Some v1) None (aux t1 l2)
-	  | _ -> concatf k2 None (Some v2) (aux l1 t2)
-    in
-    List.fold_left (fun m (k, v) -> add k v m) empty (aux b1 b2)
-    
 end
 
 let empty = FM.empty
