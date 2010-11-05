@@ -48,6 +48,7 @@ struct
 
   open Mk
 
+  let resl_undef s = resl_v s sundefined
   let resl_bool s b = resl_v s (bool b)
   let resl_int s i = resl_v s (int i)
   let resl_num s n = resl_v s (num n)

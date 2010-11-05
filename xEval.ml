@@ -30,13 +30,13 @@ let apply_obj ~pos o this args s =
 
 let rec get_field ~pos obj1 obj2 field args s =
   match obj1 with
-  | SConst CNull -> [{ s with res = SValue sundefined }]
+  | SConst CNull -> resl_undef s
   | SHeapLabel label ->
       let { attrs ; props } = SHeap.find label s.heap in
       begin match IdMap.find_opt field props with
       | Some prop_attrs ->
 	  begin match AttrMap.find_opt Value prop_attrs with
-	  | Some value -> [{ s with res = SValue value }]
+	  | Some value -> resl_v s value
 	  | None ->
 	      begin match AttrMap.find_opt Getter prop_attrs with
 	      | Some getter ->
@@ -45,13 +45,13 @@ let rec get_field ~pos obj1 obj2 field args s =
 	          |> apply ~pos args [getter]
 		  |> List.map (do_no_exn apply_getter)
 		  |> List.flatten
-	      | None -> [{ s with res = SValue sundefined }]
+	      | None -> resl_undef s
 	      end
 	  end
       | None ->
 	  begin match IdMap.find_opt "proto" attrs with
 	  | Some proto -> get_field ~pos proto obj2 field args s
-	  | None -> [{ s with res = SValue sundefined }]
+	  | None -> resl_undef s
 	  end
       end
   | _ -> errl ~pos s (sprintf "Error [xeval] get_field received (or reached) a non-object. The expression was (get-field %s %s %s)" (ToString.svalue s obj1) (ToString.svalue s obj2) field)
@@ -66,7 +66,7 @@ let add_field ~pos obj field newval s =
 	let o = { attrs ; props = IdMap.add field (AttrMap.from_list a) props } in
 	[{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
       else
-	[{ s with res = SValue sundefined }]
+	resl_undef s
   | _ -> errl ~pos s "Error [xeval] add_field given non-object"
 
 
@@ -112,10 +112,10 @@ let get_attr ~pos attr obj field s =
       begin match IdMap.find_opt f props with
       | Some prop ->
 	  begin match AttrMap.find_opt attr prop with
-	  | Some a -> [{ s with res = SValue a }]
-	  | None -> [{ s with res = SValue sundefined }]
+	  | Some a -> resl_v s a
+	  | None -> resl_undef s
 	  end
-      | None -> [{ s with res = SValue sundefined }]
+      | None -> resl_undef s
       end
   | _ -> errl ~pos s (sprintf "Error [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -266,7 +266,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	      let obj = { attrs ; props = IdMap.remove f props } in
 	      [{ s with heap = SHeap.add label obj s.heap ; res = SValue strue }]
 	    else
-	      [{ s with res = SValue sfalse }]
+	      resl_bool s false
 	| _ -> errl ~pos s (sprintf "Error [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval2 unit_delete obj f s
@@ -377,7 +377,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  |> xeval e
 	  |> List.map (List.fold_leftr unset_arg xl)
       in
-      [{ s with res = SValue (SClosure lambda) }]
+      resl_v s (SClosure lambda)
   in
   check_exn xeval_nocheck s
 
