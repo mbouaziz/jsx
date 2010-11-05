@@ -30,8 +30,8 @@ struct
 
   module Mk =
   struct
-
     let bool b = SConst (CBool b)
+    let int i = SConst (CInt i)
     let num f = SConst (CNum f)
     let str x = SConst (CString x)
     let throw msg = SThrow (dummy_pos, msg)
@@ -41,6 +41,16 @@ struct
     let sapp v vl = SSymb (SApp(v, vl))
     let sid id = SSymb (SId id)
   end
+
+  open Mk
+
+  let resl_bool s b = resl_v s (bool b)
+  let resl_int s i = resl_v s (int i)
+  let resl_num s n = resl_v s (num n)
+  let resl_str s x = resl_v s (str x)
+
+  let throwl s v = resl_e s (throw v)
+  let throwl_str s msg = throwl s (str msg)
 end
 
 open ResHelpers
@@ -70,7 +80,7 @@ let xdelta2 f1 f2 g sl =
 let to_float x s = match x with
 | SConst (CInt n) -> resl_v s (float_of_int n)
 | SConst (CNum n) -> resl_v s n
-| _ -> resl_e s (throw (str (sprintf "expected number, got %s" (ToString.svalue s x))))
+| _ -> throwl_str s (sprintf "expected number, got %s" (ToString.svalue s x))
 
 
 let float_str = LambdaJS.Delta.float_str
@@ -80,23 +90,10 @@ let float_str = LambdaJS.Delta.float_str
 
 let assume v s =
   match PathCondition.add_assumption (PredVal v) s.pc with
-  | None -> resl_e s (SError "This assumption is surely false!")
+  | None -> errl s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
 
-let prim_to_str v s = match v with
-| SConst c ->
-    let resl_str str_v = resl_v s (str str_v) in
-    begin match c with
-    | CUndefined -> resl_str "undefined"
-    | CNull -> resl_str "null"
-    | CString x -> resl_str x
-    | CNum n -> resl_str (float_str n)
-    | CInt n -> resl_str (string_of_int n)
-    | CBool b -> resl_str (string_of_bool b)
-    | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
-    end
-| SSymb _ -> resl_v s (sop1 "prim->str" v)
-| _ -> resl_e s (throw (str "prim_to_str"))
+let fail v s = resl_bool s false (* no such thing in my implementation *)
 
 let is_callable v s = match v with
 | SHeapLabel label ->
@@ -108,10 +105,38 @@ let is_callable v s = match v with
 | SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
 
+let prim_to_num v s = match v with
+| SConst c ->
+    begin match c with
+    | CUndefined -> resl_num s nan
+    | CNull
+    | CBool false -> resl_num s 0.0
+    | CBool true -> resl_num s 1.0
+    | CNum n -> resl_num s n
+    | CInt i -> resl_num s (float_of_int i)
+    | CString x -> resl_num s (try float_of_string x with Failure "float_of_string" -> nan)
+    | CRegexp _ -> errl s "prim_to_num of regexp"
+    end
+| SSymb _ -> resl_v s (sop1 "prim->num" v)
+| _ -> throwl_str s "prim_to_num"
+
+let prim_to_str v s = match v with
+| SConst c ->
+    begin match c with
+    | CUndefined -> resl_str s "undefined"
+    | CNull -> resl_str s "null"
+    | CString x -> resl_str s x
+    | CNum n -> resl_str s (float_str n)
+    | CInt n -> resl_str s (string_of_int n)
+    | CBool b -> resl_str s (string_of_bool b)
+    | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
+    end
+| SSymb _ -> resl_v s (sop1 "prim->str" v)
+| _ -> throwl_str s "prim_to_str"
+
 let is_primitive v s = match v with
 | SConst _ -> resl_v s strue
 | SSymb _ -> resl_v s (sop1 "primitive?" v)
- (* resl_v_if s (sop1 "primitive?" v) strue sfalse *)
 | _ -> resl_v s sfalse
 
 let print v s = resl_f s (SIO.print v)
@@ -119,34 +144,115 @@ let print v s = resl_f s (SIO.print v)
 let symbol v s = match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
 | SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
-| _ -> errl s "Error [symbol] Please, don't do stupid thing with symbolic id"
+| _ -> errl s "Error [symbol] Please, don't do stupid things with symbolic id"
 
+let typeof v s = match v with
+| SConst c ->
+    begin match c with
+    | CUndefined -> resl_str s "undefined"
+    | CNull -> resl_str s "null"
+    | CString _ -> resl_str s "string"
+    | CNum _
+    | CInt _ -> resl_str s "number"
+    | CBool _ -> resl_str s "boolean"
+    | CRegexp _ -> errl s "Error [typeof] regexp NYI"
+    end
+| SHeapLabel _ -> resl_str s "object"
+| SClosure _ -> resl_str s "lambda"
+| SSymb _ -> resl_v s (sop1 "typeof" v)
 
 let err_op1 ~op _ s = errl s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
 
 let op1 ~pos op v s =
   let f = match op with
   | "assume" -> assume
+  | "fail?" -> fail
   | "is-callable" -> is_callable
+  | "prim->num" -> prim_to_num
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive
   | "print" -> print
   | "symbol" -> symbol
+  | "typeof" -> typeof
   | op -> err_op1 ~op
   in
   s |> f v |> List.map (state_pretty_error ~pos)
 
 (* Binary operators *)
 
-let arith_lt x y s =
-  let make x y s = resl_v s (bool (x < y)) in
-  xdelta2 (to_float x) (to_float y) make [s]
+let arith op2_op i_op f_op v1 v2 s = match v1, v2 with
+| SConst (CInt i1), SConst (CInt i2) -> resl_int s (i_op i1 i2)
+| SConst (CNum f1), SConst (CNum f2) -> resl_num s (f_op f1 f2)
+| SConst (CNum f1), SConst (CInt i2) -> resl_num s (f_op f1 (float_of_int i2))
+| SConst (CInt i1), SConst (CNum f2) -> resl_num s (f_op (float_of_int i1) f2)
+| SSymb _, _
+| _, SSymb _ -> resl_v s (sop2 op2_op v1 v2)
+| _ -> throwl_str s "arithmetic operator"
+
+let arith_sum v1 v2 s = arith "+" (+) (+.) v1 v2 s
+
+let arith_sub v1 v2 s = arith "-" (-) (-.) v1 v2 s
+
+let arith_mul v1 v2 s = arith "*" ( * ) ( *. ) v1 v2 s
+
+let arith0 op2_op i_op f_op def v1 v2 s = match v2 with
+| SConst (CInt 0)
+| SConst (CNum 0.0) -> resl_num s def (* Simplified: no thrown error if v1 is not ok *)
+| SSymb _ -> resl_rv_if s (sop2 "=" v2 (num 0.0)) (SValue (num def)) (SValue (sop2 op2_op v1 v2))
+| _ -> arith op2_op i_op f_op v1 v2 s
+
+let arith_div v1 v2 s = arith0 "/" (/) (/.) infinity v1 v2 s
+
+let arith_mod v1 v2 s = arith0 "%" (mod) mod_float nan v1 v2 s
+
+let arith_lt v1 v2 s =
+  let make v1 v2 s = resl_v s (bool (v1 < v2)) in
+  xdelta2 (to_float v1) (to_float v2) make [s]
+
+let abs_eq v1 v2 s = match v1, v2 with
+  (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
+| v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true
+| SSymb _, _
+| _, SSymb _ -> resl_v s (sop2 "abs=" v1 v2)
+| SConst c1, SConst c2 ->
+    let b = match c1, c2 with
+    | CNull, CUndefined
+    | CUndefined, CNull -> true
+    | CString x, CNum n
+    | CNum n, CString x -> (try n = float_of_string x with Failure "float_of_string" -> false)
+    | CString x, CInt n
+    | CInt n, CString x -> (try float_of_int n = float_of_string x with Failure _ -> false)
+    | CNum n, CBool b
+    | CBool b, CNum n -> n = (if b then 1.0 else 0.0)
+    | CInt n, CBool b
+    | CBool b, CInt n -> n = (if b then 1 else 0)
+    | CNum f, CInt i
+    | CInt i, CNum f -> float_of_int i = f
+    | _ -> false
+    in resl_bool s b
+| _ -> throwl_str s "expected primitive constant"
+
+let stx_eq v1 v2 s = match v1, v2 with
+  (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
+| v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true 
+| SConst (CNum n), SConst (CInt i)
+| SConst (CInt i), SConst (CNum n) -> resl_bool s (float_of_int i = n)
+| SSymb _, _
+| _, SSymb _ -> resl_v s (sop2 "stx=" v1 v2)
+| _, _ -> resl_bool s false
 
 let err_op2 ~op _ _ s = errl s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
 let op2 ~pos op v1 v2 s =
   let f = match op with
+  | "+" -> arith_sum
+  | "-" -> arith_sub
+  | "*" -> arith_mul
+  | "/" -> arith_div
+  | "%" -> arith_mod
   | "<" -> arith_lt
+  | "abs=" -> abs_eq
+  | "stx=" -> stx_eq
   | op -> err_op2 ~op
   in
   s |> f v1 v2 |> List.map (state_pretty_error ~pos)
