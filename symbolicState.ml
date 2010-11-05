@@ -318,15 +318,22 @@ struct
     | PredVal v -> svalue ~brackets s v
     | PredNotVal v -> sprintf "Not(%s)" (svalue s v)
 
-  let pathcomponent ?(brackets=false) s = function
-    | { is_assumption = true ; _ } when !Options.opt_assumptions = false -> None
-    | { pred ; _ } -> Some (predicate ~brackets s pred)
+  let pathcomponent ?(brackets=false) ~assumptions s = function
+    | { is_assumption = is_a ; pred } when is_a = assumptions -> Some (predicate ~brackets s pred)
+    | _ -> None
 
   let pathcondition s = function
     | [] -> "True"
-    | pc -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true s) pc)
+    | pc -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:false s) pc)
+
+  let assumptions s = function
+    | _ when !Options.opt_assumptions = false -> ""
+    | [] -> ""
+    | pc -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:true s) pc)
+
 
   let env s env = ""
+  let callstack s cs = ""
   let heap ?labs s heap =
     let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (sobj s v))::l in
     let unit_lab = match labs with
@@ -359,8 +366,9 @@ struct
     |> collect_labels s (rvalue_values s.res)
     |> collect_labels s (exn_values s.exn)
     |> collect_labels s (SIO.values s.io)
+    |> collect_labels s (callstack_values s.callstack)
     in
-    ["pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "io", io s s.io]
+    ["assum", assumptions s s.pc; "pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "io", io s s.io]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
