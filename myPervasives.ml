@@ -81,9 +81,12 @@ module IdMmap = MultiMap.Make(IdOrderedType)
 
 let sprintf = Printf.sprintf
 
-let pretty_position (p, e) =
+let pretty_position ?(alone=true) (p, e) =
   let open Lexing in
-  sprintf "File \"%s\", line %d, characters %d-%d:" p.pos_fname p.pos_lnum (p.pos_cnum - p.pos_bol) (e.pos_cnum - e.pos_bol)
+  if alone then
+    sprintf "File \"%s\", line %d, characters %d-%d:" p.pos_fname p.pos_lnum (p.pos_cnum - p.pos_bol) (e.pos_cnum - e.pos_bol)
+  else
+    sprintf "file \"%s\", line %d, characters %d-%d" p.pos_fname p.pos_lnum (p.pos_cnum - p.pos_bol) (e.pos_cnum - e.pos_bol)
 
 let warning msg =
   prerr_endline (sprintf "Warning: %s" msg)

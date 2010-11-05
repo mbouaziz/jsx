@@ -17,16 +17,18 @@ struct
     | Some pc, SValue _ -> { s with pc ; res = rv_e }::sl
     | Some pc, SExn e -> { s with pc ; exn = Some e ; res = rv_e }::sl
   let resl_v_if s v_c v_t v_e = resl_rv_if s v_c (SValue v_t) (SValue v_e)
-  let res_e s e = { s with exn = Some e ; res = SExn e }
-  let resl_e s e = [res_e s e]
+  let res_e ~pos s ev =
+    let e = (pos, s.callstack), ev in
+    { s with exn = Some e ; res = SExn e }
+  let resl_e ~pos s e = [res_e ~pos s e]
   let resl_io s io = [{ s with io }]
   let resl_f s f = resl_io s (f s.io)
-  let err s msg =
+  let err ~pos s msg =
     if !Options.opt_fatal then
       failwith msg
     else
-      res_e s (SError msg)
-  let errl s msg = [err s msg]
+      res_e ~pos s (SError msg)
+  let errl ~pos s msg = [err ~pos s msg]
 
   module Mk =
   struct
@@ -34,12 +36,14 @@ struct
     let int i = SConst (CInt i)
     let num f = SConst (CNum f)
     let str x = SConst (CString x)
-    let throw msg = SThrow (dummy_pos, msg)
     let sop1 o v = SSymb (SOp1(o, v))
     let sop2 o v1 v2 = SSymb (SOp2(o, v1, v2))
     let sop3 o v1 v2 v3 = SSymb (SOp3(o, v1, v2, v3))
     let sapp v vl = SSymb (SApp(v, vl))
     let sid id = SSymb (SId id)
+    let serr ~pos s msg = (pos, s.callstack), SError msg
+    let sthrow ~pos s msg = (pos, s.callstack), SThrow msg
+    let sbreak ~pos s l v = (pos, s.callstack), SBreak (l, v)
   end
 
   open Mk
@@ -49,15 +53,15 @@ struct
   let resl_num s n = resl_v s (num n)
   let resl_str s x = resl_v s (str x)
 
-  let throwl s v = resl_e s (throw v)
-  let throwl_str s msg = throwl s (str msg)
+  let throwl ~pos s v = resl_e ~pos s (SThrow v)
+  let throwl_str ~pos s msg = throwl ~pos s (str msg)
 end
 
 open ResHelpers
 open Mk
 
 let state_pretty_error ~pos s = match s with
-  | { res = SExn (SError msg) ; _ } -> err s (sprintf "%s\n%s" (pretty_position pos) msg)
+  | { res = SExn ((_, cs), ev) ; _ } -> { s with res = SExn ((pos, cs), ev) }
   | _ -> s
 
 
@@ -80,7 +84,7 @@ let xdelta2 f1 f2 g sl =
 let to_float x s = match x with
 | SConst (CInt n) -> resl_v s (float_of_int n)
 | SConst (CNum n) -> resl_v s n
-| _ -> throwl_str s (sprintf "expected number, got %s" (ToString.svalue s x))
+| _ -> throwl_str ~pos:dummy_pos s (sprintf "expected number, got %s" (ToString.svalue s x))
 
 
 let float_str = LambdaJS.Delta.float_str
@@ -90,7 +94,7 @@ let float_str = LambdaJS.Delta.float_str
 
 let assume v s =
   match PathCondition.add_assumption (PredVal v) s.pc with
-  | None -> errl s "This assumption is surely false!"
+  | None -> errl ~pos:dummy_pos s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
 
 let fail v s = resl_bool s false (* no such thing in my implementation *)
@@ -115,10 +119,10 @@ let prim_to_num v s = match v with
     | CNum n -> resl_num s n
     | CInt i -> resl_num s (float_of_int i)
     | CString x -> resl_num s (try float_of_string x with Failure "float_of_string" -> nan)
-    | CRegexp _ -> errl s "prim_to_num of regexp"
+    | CRegexp _ -> errl ~pos:dummy_pos s "prim_to_num of regexp"
     end
 | SSymb _ -> resl_v s (sop1 "prim->num" v)
-| _ -> throwl_str s "prim_to_num"
+| _ -> throwl_str ~pos:dummy_pos s "prim_to_num"
 
 let prim_to_str v s = match v with
 | SConst c ->
@@ -129,10 +133,10 @@ let prim_to_str v s = match v with
     | CNum n -> resl_str s (float_str n)
     | CInt n -> resl_str s (string_of_int n)
     | CBool b -> resl_str s (string_of_bool b)
-    | CRegexp _ -> errl s "Error [prim_to_str] regexp NYI"
+    | CRegexp _ -> errl ~pos:dummy_pos s "Error [prim_to_str] regexp NYI"
     end
 | SSymb _ -> resl_v s (sop1 "prim->str" v)
-| _ -> throwl_str s "prim_to_str"
+| _ -> throwl_str ~pos:dummy_pos s "prim_to_str"
 
 let is_primitive v s = match v with
 | SConst _ -> resl_v s strue
@@ -144,7 +148,7 @@ let print v s = resl_f s (SIO.print v)
 let symbol v s = match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
 | SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
-| _ -> errl s "Error [symbol] Please, don't do stupid things with symbolic id"
+| _ -> errl ~pos:dummy_pos s "Error [symbol] Please, don't do stupid things with symbolic id"
 
 let typeof v s = match v with
 | SConst c ->
@@ -155,13 +159,13 @@ let typeof v s = match v with
     | CNum _
     | CInt _ -> resl_str s "number"
     | CBool _ -> resl_str s "boolean"
-    | CRegexp _ -> errl s "Error [typeof] regexp NYI"
+    | CRegexp _ -> errl ~pos:dummy_pos s "Error [typeof] regexp NYI"
     end
 | SHeapLabel _ -> resl_str s "object"
 | SClosure _ -> resl_str s "lambda"
 | SSymb _ -> resl_v s (sop1 "typeof" v)
 
-let err_op1 ~op _ s = errl s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
+let err_op1 ~op _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
 
 let op1 ~pos op v s =
   let f = match op with
@@ -187,7 +191,7 @@ let arith op2_op i_op f_op v1 v2 s = match v1, v2 with
 | SConst (CInt i1), SConst (CNum f2) -> resl_num s (f_op (float_of_int i1) f2)
 | SSymb _, _
 | _, SSymb _ -> resl_v s (sop2 op2_op v1 v2)
-| _ -> throwl_str s "arithmetic operator"
+| _ -> throwl_str ~pos:dummy_pos s "arithmetic operator"
 
 let arith_sum v1 v2 s = arith "+" (+) (+.) v1 v2 s
 
@@ -230,7 +234,7 @@ let abs_eq v1 v2 s = match v1, v2 with
     | CInt i, CNum f -> float_of_int i = f
     | _ -> false
     in resl_bool s b
-| _ -> throwl_str s "expected primitive constant"
+| _ -> throwl_str ~pos:dummy_pos s "expected primitive constant"
 
 let stx_eq v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
@@ -241,7 +245,7 @@ let stx_eq v1 v2 s = match v1, v2 with
 | _, SSymb _ -> resl_v s (sop2 "stx=" v1 v2)
 | _, _ -> resl_bool s false
 
-let err_op2 ~op _ _ s = errl s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
+let err_op2 ~op _ _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
 let op2 ~pos op v1 v2 s =
   let f = match op with
@@ -259,7 +263,7 @@ let op2 ~pos op v1 v2 s =
 
 (* Ternary operators *)
 
-let err_op3 ~op _ _ _ s = errl s (sprintf "Error [xeval] No ternary operators yet, so what's this \"%s\"" op)
+let err_op3 ~op _ _ _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No ternary operators yet, so what's this \"%s\"" op)
 
 let op3 ~pos op v1 v2 v3 s =
   let f = match op with

@@ -72,9 +72,15 @@ type err = string
 
 type pos = Lexing.position * Lexing.position
 
-type 'a sexn = | SBreak of pos * (LambdaJS.Values.label * 'a)
-	       | SThrow of pos * 'a
-	       | SError of err
+type 'a call = pos * 'a list
+
+type 'a callstack = 'a call list
+
+type 'a sexnval = | SBreak of LambdaJS.Values.label * 'a
+		  | SThrow of 'a
+		  | SError of err
+
+type 'a sexn = (pos * 'a callstack) * 'a sexnval
 
 type 'a predicate =
   (* | PredConst of bool *)
@@ -87,7 +93,7 @@ type 'a pathcondition = 'a pathcomponent list (* big And *)
 
 type 'a env = 'a IdMmap.t
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t }
+type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t ; callstack : 'a callstack }
 
 type ('a, 'b) rvalue =
   | SValue of 'a
@@ -175,7 +181,7 @@ end
 
 
 let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = PathCondition.pc_true; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty }
+let make_empty_sstate x = { pc = PathCondition.pc_true; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty; callstack = [] }
 let empty_sstate = make_empty_sstate ()
 
 
@@ -283,14 +289,26 @@ struct
 
   let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
+  let senv s env =
+    let unit_binding (id, v) = sprintf "%s\t%s" id (svalue s v) in
+    env |> IdMmap.bindings |> List.map unit_binding |> String.concat "\n"
+
+  let scall s (pos, args) = sprintf "Called from %s" (pretty_position ~alone:false pos)
+
+  let scallstack s = List.map (scall s)
+
+  let position_and_stack s pos cs =
+    (pretty_position pos)::(scallstack s cs) |> String.concat "\n"
+
   let label l = l
 
-  let err s e = e
+  let exnval s = function
+    | SBreak (l, v) -> sprintf "Break(%s, %s)" (label l) (svalue s v)
+    | SThrow v -> sprintf "Throw(%s)" (svalue s v)
+    | SError msg -> msg
 
-  let exn s = function
-    | SBreak(pos,(l, v)) -> sprintf "%s\nBreak(%s, %s)" (pretty_position pos) (label l) (svalue s v)
-    | SThrow(pos,v) -> sprintf "%s\nThrow(%s)" (pretty_position pos) (svalue s v)
-    | SError e -> err s e
+  let exn s ((pos, cs), ev) =
+    sprintf "%s\n%s" (position_and_stack s pos cs) (exnval s ev)
 
   let srvalue s = function
     | SExn e -> exn s e
@@ -325,10 +343,13 @@ struct
   (* these X_values functions should correspond to what is printed with res_X *)
   let env_values _ = []
   let rvalue_values _ = []
+  let callstack_values _ = []
+  let exnval_values = function
+    | SBreak (_, v)
+    | SThrow v -> [v]
+    | SError _ -> []
   let exn_values = function
-    | Some (SBreak(_,(_,v)))
-    | Some (SThrow(_,v)) -> [v]
-    | Some (SError _)
+    | Some ((_, cs), ev) -> (callstack_values cs)@(exnval_values ev)
     | None -> []
 
   let state s =
@@ -349,3 +370,5 @@ struct
     | sl -> sl |> List.map state |> String.concat "\n\n"
 
 end
+
+let pretty_position_and_stack = ToString.position_and_stack

@@ -50,6 +50,8 @@ let opt_features = ref false
 let opt_pretty = ref false
 let opt_xeval = ref true
 
+let opt_err_unbound_id_env = ref false
+
 
 let arg_speclist =
   let speclist =

@@ -23,6 +23,7 @@ module type S = sig
   val cardinal : 'a t -> int
   val find : key -> 'a t -> 'a
   val find_opt : key -> 'a t -> 'a option
+  val bindings : 'a t -> (key * 'a) list
 
 end
 
@@ -93,5 +94,7 @@ struct
   let find_opt k m = match M.find_opt k m with
   | Some x -> Some (List.hd x)
   | None -> None
+
+  let bindings m = List.map (fun (k, l) -> k, List.hd l) (M.bindings m)
 
 end
