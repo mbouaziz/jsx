@@ -321,7 +321,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   | EFix(pos, x, e) -> errl s (sprintf "%s\nError [xeval] EFix NYI" (pretty_position pos))
   | ELabel(pos, l, e) ->
       let unit_check_label s = match s.res with
-      | SExn (SBreak (_, (l', v))) when l = l' -> { s with res = SValue v }
+      | SExn (SBreak (_, (l', v))) when l = l' -> { s with exn = None; res = SValue v }
       | _ -> s
       in
       s |> xeval e |> List.map unit_check_label
@@ -338,7 +338,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  | SValue v -> apply ~pos v [msg] s
 	  | SExn _ -> assert false
 	  in
-	  s |> xeval catch |> List.map unit_apply_catch |> List.flatten
+	  { s with exn = None } |> xeval catch |> List.map unit_apply_catch |> List.flatten
       | _ -> [s]
       in
       s |> xeval body |> List.map unit_catch |> List.flatten
