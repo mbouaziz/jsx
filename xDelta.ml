@@ -62,10 +62,6 @@ end
 open ResHelpers
 open Mk
 
-let state_pretty_error ~pos s = match s with
-  | { res = SExn ((_, cs), ev) ; _ } -> { s with res = SExn ((pos, cs), ev) }
-  | _ -> s
-
 
 let (|^) sl f =
   let f' s = match s.exn with
@@ -83,10 +79,10 @@ let xdelta2 f1 f2 g sl =
   in
   sl |> List.map f1 |> List.flatten |^ f2 |> List.map g' |> List.flatten
 
-let to_float x s = match x with
+let to_float ~pos x s = match x with
 | SConst (CInt n) -> resl_v s (float_of_int n)
 | SConst (CNum n) -> resl_v s n
-| _ -> throwl_str ~pos:dummy_pos s (sprintf "expected number, got %s" (ToString.svalue s x))
+| _ -> throwl_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x))
 
 
 let float_str = LambdaJS.Delta.float_str
@@ -94,14 +90,14 @@ let float_str = LambdaJS.Delta.float_str
 
 (* Unary operators *)
 
-let assume v s =
+let assume ~pos v s =
   match PathCondition.add_assumption (PredVal v) s.pc with
-  | None -> errl ~pos:dummy_pos s "This assumption is surely false!"
+  | None -> errl ~pos s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
 
-let fail v s = resl_bool s false (* no such thing in my implementation *)
+let fail ~pos v s = resl_bool s false (* no such thing in my implementation *)
 
-let is_callable v s = match v with
+let is_callable ~pos v s = match v with
 | SHeapLabel label ->
     let { attrs ; _ } = SHeap.find label s.heap in
     begin match IdMap.find_opt "code" attrs with
@@ -111,7 +107,7 @@ let is_callable v s = match v with
 | SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
 
-let get_own_property_names v s = match v with
+let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let { props ; _ } = SHeap.find label s.heap in
     let add_name name _ (i, m) =
@@ -122,9 +118,9 @@ let get_own_property_names v s = match v with
     let label = HeapLabel.fresh () in
     [{ s with heap = SHeap.add label { props ; attrs = IdMap.empty } s.heap; res = SValue (SHeapLabel label) }]
 | SSymb _ -> resl_v s (sop1 "own-property-names" v)
-| _ -> throwl_str ~pos:dummy_pos s "own-property-names"
+| _ -> throwl_str ~pos s "own-property-names"
 
-let prim_to_num v s = match v with
+let prim_to_num ~pos v s = match v with
 | SConst c ->
     begin match c with
     | CUndefined -> resl_num s nan
@@ -134,12 +130,12 @@ let prim_to_num v s = match v with
     | CNum n -> resl_num s n
     | CInt i -> resl_num s (float_of_int i)
     | CString x -> resl_num s (try float_of_string x with Failure "float_of_string" -> nan)
-    | CRegexp _ -> errl ~pos:dummy_pos s "prim_to_num of regexp"
+    | CRegexp _ -> errl ~pos s "prim_to_num of regexp"
     end
 | SSymb _ -> resl_v s (sop1 "prim->num" v)
-| _ -> throwl_str ~pos:dummy_pos s "prim_to_num"
+| _ -> throwl_str ~pos s "prim_to_num"
 
-let prim_to_str v s = match v with
+let prim_to_str ~pos v s = match v with
 | SConst c ->
     begin match c with
     | CUndefined -> resl_str s "undefined"
@@ -148,24 +144,24 @@ let prim_to_str v s = match v with
     | CNum n -> resl_str s (float_str n)
     | CInt n -> resl_str s (string_of_int n)
     | CBool b -> resl_str s (string_of_bool b)
-    | CRegexp _ -> errl ~pos:dummy_pos s "Error [prim_to_str] regexp NYI"
+    | CRegexp _ -> errl ~pos s "Error [prim_to_str] regexp NYI"
     end
 | SSymb _ -> resl_v s (sop1 "prim->str" v)
-| _ -> throwl_str ~pos:dummy_pos s "prim_to_str"
+| _ -> throwl_str ~pos s "prim_to_str"
 
-let is_primitive v s = match v with
+let is_primitive ~pos v s = match v with
 | SConst _ -> resl_v s strue
 | SSymb _ -> resl_v s (sop1 "primitive?" v)
 | _ -> resl_v s sfalse
 
-let print v s = resl_f s (SIO.print v)
+let print ~pos v s = resl_f s (SIO.print v)
 
-let symbol v s = match v with
+let symbol ~pos v s = match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
 | SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
-| _ -> errl ~pos:dummy_pos s "Error [symbol] Please, don't do stupid things with symbolic id"
+| _ -> errl ~pos s "Error [symbol] Please, don't do stupid things with symbolic id"
 
-let typeof v s = match v with
+let typeof ~pos v s = match v with
 | SConst c ->
     begin match c with
     | CUndefined -> resl_str s "undefined"
@@ -174,13 +170,13 @@ let typeof v s = match v with
     | CNum _
     | CInt _ -> resl_str s "number"
     | CBool _ -> resl_str s "boolean"
-    | CRegexp _ -> errl ~pos:dummy_pos s "Error [typeof] regexp NYI"
+    | CRegexp _ -> errl ~pos s "Error [typeof] regexp NYI"
     end
 | SHeapLabel _ -> resl_str s "object"
 | SClosure _ -> resl_str s "lambda"
 | SSymb _ -> resl_v s (sop1 "typeof" v)
 
-let err_op1 ~op _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
+let err_op1 ~op ~pos _ s = errl ~pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
 
 let op1 ~pos op v s =
   let f = match op with
@@ -196,40 +192,40 @@ let op1 ~pos op v s =
   | "typeof" -> typeof
   | op -> err_op1 ~op
   in
-  s |> f v |> List.map (state_pretty_error ~pos)
+  f ~pos v s
 
 (* Binary operators *)
 
-let arith op2_op i_op f_op v1 v2 s = match v1, v2 with
+let arith ~pos op2_op i_op f_op v1 v2 s = match v1, v2 with
 | SConst (CInt i1), SConst (CInt i2) -> resl_int s (i_op i1 i2)
 | SConst (CNum f1), SConst (CNum f2) -> resl_num s (f_op f1 f2)
 | SConst (CNum f1), SConst (CInt i2) -> resl_num s (f_op f1 (float_of_int i2))
 | SConst (CInt i1), SConst (CNum f2) -> resl_num s (f_op (float_of_int i1) f2)
 | SSymb _, _
 | _, SSymb _ -> resl_v s (sop2 op2_op v1 v2)
-| _ -> throwl_str ~pos:dummy_pos s "arithmetic operator"
+| _ -> throwl_str ~pos s "arithmetic operator"
 
-let arith_sum v1 v2 s = arith "+" (+) (+.) v1 v2 s
+let arith_sum ~pos v1 v2 s = arith ~pos "+" (+) (+.) v1 v2 s
 
-let arith_sub v1 v2 s = arith "-" (-) (-.) v1 v2 s
+let arith_sub ~pos v1 v2 s = arith ~pos "-" (-) (-.) v1 v2 s
 
-let arith_mul v1 v2 s = arith "*" ( * ) ( *. ) v1 v2 s
+let arith_mul ~pos v1 v2 s = arith ~pos "*" ( * ) ( *. ) v1 v2 s
 
-let arith0 op2_op i_op f_op def v1 v2 s = match v2 with
+let arith0 ~pos op2_op i_op f_op def v1 v2 s = match v2 with
 | SConst (CInt 0)
 | SConst (CNum 0.0) -> resl_num s def (* Simplified: no thrown error if v1 is not ok *)
 | SSymb _ -> resl_rv_if s (sop2 "=" v2 (num 0.0)) (SValue (num def)) (SValue (sop2 op2_op v1 v2))
-| _ -> arith op2_op i_op f_op v1 v2 s
+| _ -> arith ~pos op2_op i_op f_op v1 v2 s
 
-let arith_div v1 v2 s = arith0 "/" (/) (/.) infinity v1 v2 s
+let arith_div ~pos v1 v2 s = arith0 ~pos "/" (/) (/.) infinity v1 v2 s
 
-let arith_mod v1 v2 s = arith0 "%" (mod) mod_float nan v1 v2 s
+let arith_mod ~pos v1 v2 s = arith0 ~pos "%" (mod) mod_float nan v1 v2 s
 
-let arith_lt v1 v2 s =
+let arith_lt ~pos v1 v2 s =
   let make v1 v2 s = resl_v s (bool (v1 < v2)) in
-  xdelta2 (to_float v1) (to_float v2) make [s]
+  xdelta2 (to_float ~pos v1) (to_float ~pos v2) make [s]
 
-let abs_eq v1 v2 s = match v1, v2 with
+let abs_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
 | v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true
 | SSymb _, _
@@ -250,9 +246,9 @@ let abs_eq v1 v2 s = match v1, v2 with
     | CInt i, CNum f -> float_of_int i = f
     | _ -> false
     in resl_bool s b
-| _ -> throwl_str ~pos:dummy_pos s "expected primitive constant"
+| _ -> throwl_str ~pos s "expected primitive constant"
 
-let stx_eq v1 v2 s = match v1, v2 with
+let stx_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
 | v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true 
 | SConst (CNum n), SConst (CInt i)
@@ -261,7 +257,7 @@ let stx_eq v1 v2 s = match v1, v2 with
 | _, SSymb _ -> resl_v s (sop2 "stx=" v1 v2)
 | _, _ -> resl_bool s false
 
-let err_op2 ~op _ _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
+let err_op2 ~op ~pos _ _ s = errl ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
 let op2 ~pos op v1 v2 s =
   let f = match op with
@@ -275,14 +271,14 @@ let op2 ~pos op v1 v2 s =
   | "stx=" -> stx_eq
   | op -> err_op2 ~op
   in
-  s |> f v1 v2 |> List.map (state_pretty_error ~pos)
+  s |> f ~pos v1 v2
 
 (* Ternary operators *)
 
-let err_op3 ~op _ _ _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No ternary operators yet, so what's this \"%s\"" op)
+let err_op3 ~op ~pos _ _ _ s = errl ~pos:dummy_pos s (sprintf "Error [xeval] No ternary operators yet, so what's this \"%s\"" op)
 
 let op3 ~pos op v1 v2 v3 s =
   let f = match op with
   | op -> err_op3 ~op
   in
-  s |> f v1 v2 v3 |> List.map (state_pretty_error ~pos)
+  s |> f ~pos v1 v2 v3
