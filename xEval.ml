@@ -364,18 +364,18 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       xeval1 unit_throw e s
   | ELambda(pos, xl, e) ->
       let set_arg arg x s = { s with env = IdMmap.push x arg s.env } in
-      let unset_arg x s = { s with env = IdMmap.pop x s.env } in
       let arity_mismatch_err args s =
 	errl ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
       in
-      let lambda args s =
+      let lambda args s_caller =
 	if (List.length args) != (List.length xl) then
 	  arity_mismatch_err args s
 	else
-	  s
+	  { s_caller with env = s.env } (* Otherwise we don't have capture *)
           |> List.fold_leftr2 set_arg args xl
 	  |> xeval e
-	  |> List.map (List.fold_leftr unset_arg xl)
+	      (* no need to unbind args because of next line *)
+	  |> List.map (fun s -> { s with env = s_caller.env })
       in
       resl_v s (SClosure lambda)
   in
