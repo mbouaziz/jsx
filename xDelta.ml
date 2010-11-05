@@ -78,6 +78,11 @@ let float_str = LambdaJS.Delta.float_str
 
 (* Unary operators *)
 
+let assume v s =
+  match PathCondition.add_assumption (PredVal v) s.pc with
+  | None -> resl_e s (SError "This assumption is surely false!")
+  | Some pc -> [{ s with res = SValue strue; pc }]
+
 let prim_to_str v s = match v with
 | SConst c ->
     let resl_str str_v = resl_v s (str str_v) in
@@ -105,7 +110,8 @@ let is_callable v s = match v with
 
 let is_primitive v s = match v with
 | SConst _ -> resl_v s strue
-| SSymb _ -> resl_v_if s (sop1 "primitive?" v) strue sfalse
+| SSymb _ -> resl_v s (sop1 "primitive?" v)
+ (* resl_v_if s (sop1 "primitive?" v) strue sfalse *)
 | _ -> resl_v s sfalse
 
 let print v s = resl_f s (SIO.print v)
@@ -120,6 +126,7 @@ let err_op1 ~op _ s = errl s (sprintf "Error [xeval] No implementation of unary 
 
 let op1 ~pos op v s =
   let f = match op with
+  | "assume" -> assume
   | "is-callable" -> is_callable
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive

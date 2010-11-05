@@ -43,6 +43,7 @@ open Inputs
 let inputs = ref []
 
 (* options and their default values *)
+let opt_assumptions = ref false
 let opt_eval = ref false
 let opt_fatal = ref false
 let opt_features = ref false
@@ -60,6 +61,7 @@ let arg_speclist =
   in
   let boolspeclist =
     [
+      "assumptions", opt_assumptions, "showing of assumptions";
       "eval", opt_eval, "evaluation of code";
       "features", opt_features, "listing of used features";
       "fatal", opt_fatal, "fatal errors";

@@ -24,6 +24,15 @@ struct
       | Some x -> x::(filter_map f t)
       | None -> filter_map f t
 
+  let rev_filter_map f l =
+    let rec rfmap_f accu = function
+      | [] -> accu
+      | h::t -> match f h with
+	| Some x -> rfmap_f (x :: accu) t
+	| None -> rfmap_f accu t
+    in
+    rfmap_f [] l
+
   (* fold_left but with fold_right syntax *)
   let fold_leftr f l acc =
     let f' a x = f x a in

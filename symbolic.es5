@@ -1,3 +1,7 @@
 {
-	global["symbol" = function(s) {return prim("symbol",s)}]
+  global["symbol" = function(s){return prim("symbol",s)}];
+// TODO: cast content of assume to boolean
+  global["assume" = function(e){return prim("assume",e)}];
+  global["assume_primitive" = function(e){return prim("assume",prim("primitive?",e))}];
+  global["assume_callable" = function(e){return prim("assume",prim("is-callable",e))}]
 }
