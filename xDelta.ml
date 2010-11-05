@@ -3,6 +3,7 @@ open LambdaJS.Prelude
 open MyPervasives
 open SymbolicState
 open JS.Syntax
+open LambdaJS.Syntax
 
 module ResHelpers =
 struct
@@ -110,6 +111,19 @@ let is_callable v s = match v with
 | SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
 
+let get_own_property_names v s = match v with
+| SHeapLabel label ->
+    let { props ; _ } = SHeap.find label s.heap in
+    let add_name name _ (i, m) =
+      let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (str name)) m in
+      i + 1, m
+    in
+    let _, props = IdMap.fold add_name props (0, IdMap.empty) in
+    let label = HeapLabel.fresh () in
+    [{ s with heap = SHeap.add label { props ; attrs = IdMap.empty } s.heap; res = SValue (SHeapLabel label) }]
+| SSymb _ -> resl_v s (sop1 "own-property-names" v)
+| _ -> throwl_str ~pos:dummy_pos s "own-property-names"
+
 let prim_to_num v s = match v with
 | SConst c ->
     begin match c with
@@ -173,6 +187,7 @@ let op1 ~pos op v s =
   | "assume" -> assume
   | "fail?" -> fail
   | "is-callable" -> is_callable
+  | "own-property-names" -> get_own_property_names
   | "prim->num" -> prim_to_num
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive
