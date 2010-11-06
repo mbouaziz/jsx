@@ -87,6 +87,24 @@ let to_float ~pos x s = match x with
 
 let float_str = LambdaJS.Delta.float_str
 
+let const_typeof ~fname ~pos c s = match c with
+| CUndefined -> resl_str s "undefined"
+| CNull -> resl_str s "null"
+| CString _ -> resl_str s "string"
+| CNum _
+| CInt _ -> resl_str s "number"
+| CBool _ -> resl_str s "boolean"
+| CRegexp _ -> errl ~pos s (sprintf "Error [%s] regexp NYI" fname)
+
+let rec all_protos s = function
+  | SHeapLabel label ->
+      let { attrs ; _ } = SHeap.find label s.heap in
+      begin match IdMap.find_opt "proto" attrs with
+      | Some proto -> proto::(all_protos s proto)
+      | None -> []
+      end
+  | SSymb _ as v -> [sop1 "all-protos" v]
+  | _ -> []
 
 (* Unary operators *)
 
@@ -106,6 +124,19 @@ let is_callable ~pos v s = match v with
     end
 | SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
+
+let object_to_string ~pos v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    begin match IdMap.find_opt "class" attrs with
+    | Some (SConst (CString x)) -> resl_str s (sprintf "[object %s]" x)
+    | Some (SSymb _ as v) -> resl_v s (sop2 "string+" (str "[object ") (sop2 "string+" v (str "]")))
+    | Some _ -> throwl_str ~pos s "object-to-string, class wasn't a string"
+    | None -> throwl_str ~pos s "object-to-string, didn't find class"
+    end
+| SSymb _ -> resl_v s (sop1 "object-to-string" v)
+| _ -> throwl_str ~pos s "object-to-string, wasn't given object"
+
 
 let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
@@ -156,22 +187,36 @@ let is_primitive ~pos v s = match v with
 
 let print ~pos v s = resl_f s (SIO.print v)
 
+let surface_typeof ~pos v s = match v with
+| SConst c -> const_typeof ~fname:"surface-typeof" ~pos c s
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    resl_str s (if IdMap.mem "code" attrs then "function" else "object")
+| SSymb _ -> resl_v s (sop1 "surface-typeof" v)
+| SClosure _ -> throwl_str ~pos s "surface-typeof"
+
+let get_property_names ~pos v s = match v with
+| SHeapLabel _ ->
+    let protos = v::(all_protos s v) in
+    let is_symb = function SSymb _ -> true | _ -> false in
+    if List.exists is_symb protos then
+      resl_v s (sop1 "property-names" v)
+    else
+      assert false (* TODO HERE *)
+
 let symbol ~pos v s = match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
 | SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
 | _ -> errl ~pos s "Error [symbol] Please, don't do stupid things with symbolic id"
 
+let to_int32 ~pos v s = match v with
+| SConst (CInt _) -> resl_v s v
+| SConst (CNum f) -> resl_int s (int_of_float f)
+| SSymb _ -> resl_v s (sop1 "to-int32" v)
+| _ -> throwl_str ~pos s "to-int"
+
 let typeof ~pos v s = match v with
-| SConst c ->
-    begin match c with
-    | CUndefined -> resl_str s "undefined"
-    | CNull -> resl_str s "null"
-    | CString _ -> resl_str s "string"
-    | CNum _
-    | CInt _ -> resl_str s "number"
-    | CBool _ -> resl_str s "boolean"
-    | CRegexp _ -> errl ~pos s "Error [typeof] regexp NYI"
-    end
+| SConst c -> const_typeof ~fname:"typeof" ~pos c s
 | SHeapLabel _ -> resl_str s "object"
 | SClosure _ -> resl_str s "lambda"
 | SSymb _ -> resl_v s (sop1 "typeof" v)
@@ -183,12 +228,16 @@ let op1 ~pos op v s =
   | "assume" -> assume
   | "fail?" -> fail
   | "is-callable" -> is_callable
+  | "object-to-string" -> object_to_string
   | "own-property-names" -> get_own_property_names
   | "prim->num" -> prim_to_num
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive
   | "print" -> print
+  | "property-names" -> get_property_names
+  | "surface-typeof" -> surface_typeof
   | "symbol" -> symbol
+  | "to-int32" -> to_int32
   | "typeof" -> typeof
   | op -> err_op1 ~op
   in
