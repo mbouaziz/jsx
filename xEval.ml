@@ -185,6 +185,12 @@ let set_attr ~pos attr obj field newval s =
   | _ -> errl ~pos s (sprintf "Error [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
 
+let lambda_set_arg arg x s = { s with env = IdMmap.push x arg s.env }
+
+let arity_mismatch_err ~pos xl args s =
+  errl ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
+
+
 let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   let xeval_nocheck s = match exp with
   | EConst(_, c) -> resl_v s (SConst c)
@@ -321,7 +327,6 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       s
       |> xeval1 unit_let e
       |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x *)
-  | EFix(pos, x, e) -> errl ~pos s "Error [xeval] EFix NYI"
   | ELabel(pos, l, e) ->
       let unit_check_label s = match s.res with
       | SExn (_, SBreak (l', v)) when l = l' -> { s with exn = None; res = SValue v }
@@ -363,21 +368,29 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       in
       xeval1 unit_throw e s
   | ELambda(pos, xl, e) ->
-      let set_arg arg x s = { s with env = IdMmap.push x arg s.env } in
-      let arity_mismatch_err args s =
-	errl ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
-      in
       let lambda args s_caller =
-	if (List.length args) != (List.length xl) then
-	  arity_mismatch_err args s
+	if List.length args != List.length xl then
+	  arity_mismatch_err ~pos xl args s_caller
 	else
 	  { s_caller with env = s.env } (* Otherwise we don't have capture *)
-          |> List.fold_leftr2 set_arg args xl
+          |> List.fold_leftr2 lambda_set_arg args xl
 	  |> xeval e
 	      (* no need to unbind args because of next line *)
 	  |> List.map (fun s -> { s with env = s_caller.env })
       in
       resl_v s (SClosure lambda)
+  | EFix(_, x, ELambda(pos, xl, e)) ->
+      let rec lambda args s_caller =
+	if List.length args != List.length xl then
+	  arity_mismatch_err ~pos xl args s_caller
+	else
+	  { s_caller with env = IdMmap.push x (SClosure lambda) s.env }
+          |> List.fold_leftr2 lambda_set_arg args xl
+	  |> xeval e
+	  |> List.map (fun s -> { s with env = s_caller.env })
+      in
+      resl_v s (SClosure lambda)
+  | EFix(pos, x, e) -> errl ~pos s "Error [xeval] Arbritrary EFix NYI"
   in
   check_exn xeval_nocheck s
 
