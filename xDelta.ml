@@ -96,16 +96,6 @@ let const_typeof ~fname ~pos c s = match c with
 | CBool _ -> resl_str s "boolean"
 | CRegexp _ -> errl ~pos s (sprintf "Error [%s] regexp NYI" fname)
 
-let rec all_protos s = function
-  | SHeapLabel label ->
-      let { attrs ; _ } = SHeap.find label s.heap in
-      begin match IdMap.find_opt "proto" attrs with
-      | Some proto -> proto::(all_protos s proto)
-      | None -> []
-      end
-  | SSymb _ as v -> [sop1 "all-protos" v]
-  | _ -> []
-
 (* Unary operators *)
 
 let assume ~pos v s =
@@ -114,6 +104,16 @@ let assume ~pos v s =
   | Some pc -> [{ s with res = SValue strue; pc }]
 
 let fail ~pos v s = resl_bool s false (* no such thing in my implementation *)
+
+let get_proto ~pos v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    begin match IdMap.find_opt "proto" attrs with
+    | Some proto -> resl_v s proto
+    | None -> resl_undef s
+    end
+| SSymb _ -> resl_v s (sop1 "get-proto" v)
+| _ -> throwl_str ~pos s "get-proto"
 
 let is_callable ~pos v s = match v with
 | SHeapLabel label ->
@@ -150,6 +150,14 @@ let get_own_property_names ~pos v s = match v with
     [{ s with heap = SHeap.add label { props ; attrs = IdMap.empty } s.heap; res = SValue (SHeapLabel label) }]
 | SSymb _ -> resl_v s (sop1 "own-property-names" v)
 | _ -> throwl_str ~pos s "own-property-names"
+
+let prevent_extensions ~pos v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } as o = SHeap.find label s.heap in
+    let o = { o with attrs = IdMap.add "extensible" sfalse attrs } in
+    [{ s with heap = SHeap.add label o s.heap; res = SValue v }]
+| SSymb _ -> resl_v s (sop1 "prevent-extensions" v)
+| _ -> throwl_str ~pos s "prevent-extensions"
 
 let prim_to_num ~pos v s = match v with
 | SConst c ->
@@ -197,12 +205,48 @@ let surface_typeof ~pos v s = match v with
 
 let get_property_names ~pos v s = match v with
 | SHeapLabel _ ->
-    let protos = v::(all_protos s v) in
-    let is_symb = function SSymb _ -> true | _ -> false in
-    if List.exists is_symb protos then
-      resl_v s (sop1 "property-names" v)
-    else
-      assert false (* TODO HERE *)
+    let rec all_protos_props = function (* Return None if there is a symbolic value that can contribute to the protos *)
+      | SHeapLabel label ->
+	  let { attrs ; props } = SHeap.find label s.heap in
+	  begin match IdMap.find_opt "proto" attrs with
+	  | Some proto ->
+	      begin match all_protos_props proto with
+	      | Some l -> Some (props::l)
+	      | None -> None
+	      end
+	  | None -> Some [props]
+	  end
+      | SSymb _ -> None
+      | _ -> Some []
+    in
+    let rec collect_names set_opt props = match set_opt with
+    | Some _ ->
+	let add_prop k v set_opt = match set_opt with
+	| None -> set_opt
+	| Some set -> match AttrMap.find_opt Enum v with
+	  | Some (SSymb _) -> None (* here we should add a conditional fork *)
+	  | Some (SConst (CBool true)) -> Some (IdSet.add k set)
+	  | None
+	  | Some _ -> set_opt
+	in
+	IdMap.fold add_prop props set_opt
+    | None -> set_opt
+    in	
+    begin match all_protos_props v with
+    | None -> resl_v s (sop1 "property-names" v)
+    | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
+      | None -> resl_v s (sop1 "property-names" v)
+      | Some name_set ->
+	  let add_name name (i, m) =
+	    let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (str name)) m in
+	    i + 1, m
+	  in
+	  let _, props = IdSet.fold add_name name_set (0, IdMap.empty) in
+	  let label = HeapLabel.fresh () in
+	  [{ s with heap = SHeap.add label { props ; attrs = IdMap.empty } s.heap; res = SValue (SHeapLabel label) }]
+    end
+| SSymb _ -> resl_v s (sop1 "property-names" v)
+| _ -> throwl_str ~pos s "get-property-names"
 
 let symbol ~pos v s = match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
@@ -227,9 +271,11 @@ let op1 ~pos op v s =
   let f = match op with
   | "assume" -> assume
   | "fail?" -> fail
+  | "get-proto" -> get_proto
   | "is-callable" -> is_callable
   | "object-to-string" -> object_to_string
   | "own-property-names" -> get_own_property_names
+  | "prevent-extensions" -> prevent_extensions
   | "prim->num" -> prim_to_num
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive
@@ -270,9 +316,17 @@ let arith_div ~pos v1 v2 s = arith0 ~pos "/" (/) (/.) infinity v1 v2 s
 
 let arith_mod ~pos v1 v2 s = arith0 ~pos "%" (mod) mod_float nan v1 v2 s
 
-let arith_lt ~pos v1 v2 s =
-  let make v1 v2 s = resl_v s (bool (v1 < v2)) in
+let arith_cmp cmp ~pos v1 v2 s =
+  let make v1 v2 s = resl_v s (bool (cmp v1 v2)) in
   xdelta2 (to_float ~pos v1) (to_float ~pos v2) make [s]
+
+let arith_lt ~pos v1 v2 s = arith_cmp (<) ~pos v1 v2 s
+
+let arith_le ~pos v1 v2 s = arith_cmp (<=) ~pos v1 v2 s
+
+let arith_gt ~pos v1 v2 s = arith_cmp (>) ~pos v1 v2 s
+
+let arith_ge ~pos v1 v2 s = arith_cmp (>=) ~pos v1 v2 s
 
 let abs_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
@@ -306,6 +360,42 @@ let stx_eq ~pos v1 v2 s = match v1, v2 with
 | _, SSymb _ -> resl_v s (sop2 "stx=" v1 v2)
 | _, _ -> resl_bool s false
 
+let string_plus ~pos v1 v2 s = match v1, v2 with
+| SConst (CString x1), SConst (CString x2) -> resl_str s (x1 ^ x2)
+| SConst (CString _), SSymb _
+| SSymb _, SConst (CString _)
+| SSymb _, SSymb _ -> resl_v s (sop2 "string+" v1 v2)
+| _ -> throwl_str ~pos s "string concatenation"
+
+let has_own_property ~pos v1 v2 s = match v1, v2 with
+| SHeapLabel label, SConst (CString prop) ->
+    let { props ; _ } = SHeap.find label s.heap in
+    resl_bool s (IdMap.mem prop props)
+| SHeapLabel _, SSymb _
+| SSymb _, SConst (CString _)
+| SSymb _, SSymb _ -> resl_v s (sop2 "has-own-property?" v1 v2)
+| _, _ -> throwl_str ~pos s "has-own-property?"
+
+let has_property ~pos v1 v2 s = match v1, v2 with
+| SHeapLabel _, SSymb _
+| SSymb _, SConst (CString _)
+| SSymb _, SSymb _ -> resl_v s (sop2 "has-propert?" v1 v2)
+| SHeapLabel _, SConst (CString prop) ->
+    let rec has_prop = function
+      | SHeapLabel label ->
+	  let { attrs ; props } = SHeap.find label s.heap in
+	  if IdMap.mem prop props then
+	    resl_bool s true
+	  else begin match IdMap.find_opt "proto" attrs with
+	  | None -> resl_bool s false
+	  | Some proto -> has_prop proto
+	  end
+      | SSymb _ -> resl_v s (sop2 "has-property?" v1 v2)
+      | _ -> resl_bool s false
+    in
+    has_prop v1
+| _, _ -> resl_bool s false
+
 let err_op2 ~op ~pos _ _ s = errl ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
 let op2 ~pos op v1 v2 s =
@@ -316,8 +406,14 @@ let op2 ~pos op v1 v2 s =
   | "/" -> arith_div
   | "%" -> arith_mod
   | "<" -> arith_lt
+  | "<=" -> arith_le
+  | ">" -> arith_gt
+  | ">=" -> arith_ge
   | "abs=" -> abs_eq
   | "stx=" -> stx_eq
+  | "string+" -> string_plus
+  | "has-own-property?" -> has_own_property
+  | "has-property?" -> has_property
   | op -> err_op2 ~op
   in
   s |> f ~pos v1 v2
