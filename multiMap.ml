@@ -12,6 +12,7 @@ module type S = sig
   val mem : key -> 'a t -> bool
   val push : key -> 'a -> 'a t -> 'a t
   val replace : key -> 'a -> 'a t -> 'a t
+  val replace_all : key -> 'a -> 'a t -> 'a t
   val pop : key -> 'a t -> 'a t
   val pop_all : key -> 'a t -> 'a t
   val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
@@ -46,6 +47,8 @@ struct
 
   (* produces an error if k is unbound, not like pop then push *)
   let replace k v m = M.add k (v::(List.tl (M.find k m))) m
+
+  let replace_all k v m = M.add k [v] m
 
   let singleton k v = M.add k [v] empty
 

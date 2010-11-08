@@ -91,9 +91,16 @@ type 'a pathcomponent = { pred : 'a predicate ; is_assumption : bool }
 
 type 'a pathcondition = 'a pathcomponent list (* big And *)
 
-type 'a env = 'a IdMmap.t
+module EnvLabel = HeapLabel
+module EnvVals = Map.Make(EnvLabel)
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : 'a env ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t ; callstack : 'a callstack }
+type envlabel = EnvLabel.t
+
+type env = envlabel IdMmap.t
+
+type 'a envvals = 'a EnvVals.t
+
+type ('a, 'b) state = { pc : 'a pathcondition ; env : env ; envvals : 'a envvals ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t ; callstack : 'a callstack }
 
 type ('a, 'b) rvalue =
   | SValue of 'a
@@ -114,7 +121,6 @@ and ssymb =
 and srvalue = (svalue, svalue sexn) rvalue
 
 type vsstate = srvalue sstate
-type senv = svalue env
 
 
 
@@ -180,8 +186,7 @@ struct
 end
 
 
-let empty_env : senv = IdMmap.empty
-let make_empty_sstate x = { pc = PathCondition.pc_true; env = empty_env; heap = SHeap.empty; res = x; exn = None; io = SIO.empty; callstack = [] }
+let make_empty_sstate x = { pc = PathCondition.pc_true; env = IdMmap.empty; envvals = EnvVals.empty; heap = SHeap.empty; res = x; exn = None; io = SIO.empty; callstack = [] }
 let empty_sstate = make_empty_sstate ()
 
 
@@ -290,7 +295,10 @@ struct
   let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
   let senv s env =
-    let unit_binding (id, v) = sprintf "%s\t%s" id (svalue s v) in
+    let unit_binding (id, envlab) =
+      let v = EnvVals.find envlab s.envvals in
+      sprintf "%s\t%s" id (svalue s v)
+    in
     env |> IdMmap.bindings |> List.map unit_binding |> String.concat "\n"
 
   let scall s (pos, args) = sprintf "Called from %s" (pretty_position ~alone:false pos)

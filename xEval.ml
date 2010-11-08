@@ -185,7 +185,9 @@ let set_attr ~pos attr obj field newval s =
   | _ -> errl ~pos s (sprintf "Error [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
 
-let lambda_set_arg arg x s = { s with env = IdMmap.push x arg s.env }
+let bind_var x v s =
+  let envlab = EnvLabel.fresh () in
+  { s with env = IdMmap.push x envlab s.env; envvals = EnvVals.add envlab v s.envvals }
 
 let arity_mismatch_err ~pos xl args s =
   errl ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
@@ -196,15 +198,16 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
   | EConst(_, c) -> resl_v s (SConst c)
   | EId(pos, x) ->
       begin match IdMmap.find_opt x s.env with
-      | Some sval -> resl_v s sval
+      | Some envlab -> resl_v s (EnvVals.find envlab s.envvals)
       | None -> errl ~pos s (sprintf "Error: [xeval] Unbound identifier: %s in identifier lookup%s" x (if !Options.opt_err_unbound_id_env then sprintf " in env:\n%s" (ToString.senv s s.env) else ""))
       end
   | ESet(pos, x, e) ->
-      if IdMmap.mem x s.env then
-	let unit_set v s = [{ s with env = IdMmap.replace x v s.env }] in
-	xeval1 unit_set e s
-      else
-	errl ~pos s (sprintf "Error: [xeval] Unbound identifier: %s in set!" x)
+      begin match IdMmap.find_opt x s.env with
+      | Some envlab ->
+	  let unit_set v s = [{ s with envvals = EnvVals.add envlab v s.envvals }] in
+	  xeval1 unit_set e s
+      | None -> errl ~pos s (sprintf "Error: [xeval] Unbound identifier: %s in set!" x)
+      end
   | EObject(pos, attrs, props) ->
       let xeval_obj_attr (name, e) sl =
 	let unit_xeval_obj_attr s =
@@ -278,6 +281,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       xeval2 unit_delete obj f s
   | EAttr(pos, attr, obj, field) -> xeval2 (get_attr ~pos attr) obj field s
   | ESetAttr(pos, attr, obj, field, newval) -> xeval3 (set_attr ~pos attr) obj field newval s
+  | EOp1(pos, `Prim1 "envlab", EId(_, x)) -> resl_str s (EnvLabel.to_string (IdMmap.find x s.env))
   | EOp1(pos, `Prim1 op, e) -> xeval1 (XDelta.op1 ~pos op) e s
   | EOp2(pos, `Prim2 op, e1, e2) -> xeval2 (XDelta.op2 ~pos op) e1 e2 s
   | EOp3(pos, `Prim3 op, e1, e2, e3) -> xeval3 (XDelta.op3 ~pos op) e1 e2 e3 s
@@ -323,10 +327,10 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       xeval1 unit_xeval_args_and_apply func s
   | ESeq(pos, e1, e2) -> s |> xeval e1 |> List.map (xeval e2) |> List.flatten
   | ELet(pos, x, e, body) ->
-      let unit_let rv s = xeval body { s with env = IdMmap.push x rv s.env } in
+      let unit_let v s = xeval body (bind_var x v s) in
       s
       |> xeval1 unit_let e
-      |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x *)
+      |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x ; but envlab must not be unbind in envvals *)
   | ELabel(pos, l, e) ->
       let unit_check_label s = match s.res with
       | SExn (_, SBreak (l', v)) when l = l' -> { s with exn = None; res = SValue v }
@@ -373,19 +377,21 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  arity_mismatch_err ~pos xl args s_caller
 	else
 	  { s_caller with env = s.env } (* Otherwise we don't have capture *)
-          |> List.fold_leftr2 lambda_set_arg args xl
+          |> List.fold_leftr2 bind_var xl args
 	  |> xeval e
 	      (* no need to unbind args because of next line *)
+	      (* but we cannot unbind envlab because of capture... (todo GC ?) *)
 	  |> List.map (fun s -> { s with env = s_caller.env })
       in
       resl_v s (SClosure lambda)
   | EFix(_, x, ELambda(pos, xl, e)) ->
+      let envlab = EnvLabel.fresh () in
       let rec lambda args s_caller =
 	if List.length args != List.length xl then
 	  arity_mismatch_err ~pos xl args s_caller
 	else
-	  { s_caller with env = IdMmap.push x (SClosure lambda) s.env }
-          |> List.fold_leftr2 lambda_set_arg args xl
+	  { s_caller with env = IdMmap.replace_all x envlab s.env; envvals = EnvVals.add envlab (SClosure lambda) s_caller.envvals }
+          |> List.fold_leftr2 bind_var xl args
 	  |> xeval e
 	  |> List.map (fun s -> { s with env = s_caller.env })
       in
