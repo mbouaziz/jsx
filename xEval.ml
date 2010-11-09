@@ -441,3 +441,6 @@ and xeval4 : 'a. _ -> fine_exp -> fine_exp -> fine_exp -> fine_exp -> 'a sstate 
   | _ -> assert false
   in
   s |> xeval e1 |> xeval_push_res e2 |> xeval_push_res e3 |> xeval_push_res e4 |> List.map f' |> List.flatten
+
+let _ =
+  XDelta._xeval := xeval

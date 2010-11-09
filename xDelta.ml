@@ -65,6 +65,9 @@ open ResHelpers
 open Mk
 
 
+let _xeval = ref (fun _ _ -> failwith "xeval not initialized yet")
+let xeval e s = !_xeval e s
+
 let to_int ~pos x s = match x with
 | SConst (CInt n) -> SValue n
 | SConst (CNum n) -> SValue (int_of_float n)
@@ -93,6 +96,29 @@ let assume ~pos v s =
   match PathCondition.add_assumption (PredVal v) s.pc with
   | None -> errl ~pos s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
+
+let eval ~pos v s = match v with
+| SConst (CString x) ->
+    begin match s.callstack with
+    | [] -> errl ~pos s "I don't know from where eval is called"
+    | { call_pos ; call_state ; _ }::_ ->
+	let fname = sprintf "eval@%s" (string_of_position call_pos) in
+	let lexbuf = Lexing.from_string x in
+	lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fname };
+	let parsed = try SValue (JS.Parser.program JS.Lexer.token lexbuf) with
+	| Failure "lexing: empty token" -> SExn (throwl_str ~pos s "Lexical error")
+	| JS.Parser.Error -> SExn (throwl_str ~pos s (sprintf "Parse error: unexpected token \"%s\"" (Lexing.lexeme lexbuf)))
+	in
+	match parsed with
+	| SExn sl -> sl
+	| SValue parsed_js ->
+	    let fine_ljs = parsed_js |> JS.Interm.from_javascript |> LambdaJS.Desugar.ds_top |> LambdaJS.Desugar.desugar in
+	    { s with env = call_state.env }
+	    |> xeval fine_ljs
+	    |> List.map (fun s' -> { s' with env = s.env })
+    end
+| SSymb _ -> resl_v s (sop1 "eval" v)
+| _ -> throwl_str ~pos s "eval"
 
 let fail ~pos v s = resl_false s (* no such thing in my implementation *)
 
@@ -301,6 +327,7 @@ let err_op1 ~op ~pos _ s = errl ~pos s (sprintf "Error [xeval] No implementation
 let op1 ~pos op v s =
   let f = match op with
   | "assume" -> assume
+  | "eval" -> eval
   | "fail?" -> fail
   | "get-proto" -> get_proto
   | "is-array" -> is_array
