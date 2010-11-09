@@ -125,6 +125,18 @@ let is_callable ~pos v s = match v with
 | SSymb _ -> resl_v s (sop1 "is-callable" v)
 | _ -> resl_v s sfalse
 
+let is_extensible ~pos v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    begin match IdMap.find_opt "extensible" attrs with
+    | Some (SConst (CBool _) as c)
+    | Some (SSymb _ as c) -> resl_v s c
+    | Some _
+    | None -> resl_bool s false
+    end
+| SSymb _ -> resl_v s (sop1 "is-extensible" v)
+| _ -> throwl_str ~pos s "is-extensible"
+
 let object_to_string ~pos v s = match v with
 | SHeapLabel label ->
     let { attrs ; _ } = SHeap.find label s.heap in
@@ -273,6 +285,7 @@ let op1 ~pos op v s =
   | "fail?" -> fail
   | "get-proto" -> get_proto
   | "is-callable" -> is_callable
+  | "is-extensible" -> is_extensible
   | "object-to-string" -> object_to_string
   | "own-property-names" -> get_own_property_names
   | "prevent-extensions" -> prevent_extensions
