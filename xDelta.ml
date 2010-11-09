@@ -94,7 +94,7 @@ let assume ~pos v s =
   | None -> errl ~pos s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
 
-let fail ~pos v s = resl_bool s false (* no such thing in my implementation *)
+let fail ~pos v s = resl_false s (* no such thing in my implementation *)
 
 let get_proto ~pos v s = match v with
 | SHeapLabel label ->
@@ -135,7 +135,7 @@ let is_extensible ~pos v s = match v with
     | Some (SConst (CBool _) as c)
     | Some (SSymb _ as c) -> resl_v s c
     | Some _
-    | None -> resl_bool s false
+    | None -> resl_false s
     end
 | SSymb _ -> resl_v s (sop1 "is-extensible" v)
 | _ -> throwl_str ~pos s "is-extensible"
@@ -390,7 +390,7 @@ let arith_ge ~pos v1 v2 s = arith_cmp ">=" (>=) ~pos v1 v2 s
 
 let abs_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
-| v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true
+| v1, v2 when v1 == v2 || v1 = v2 -> resl_true s
 | SSymb _, _
 | _, SSymb _ -> resl_v s (sop2 "abs=" v1 v2)
 | SConst c1, SConst c2 ->
@@ -413,12 +413,12 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
 
 let stx_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
-| v1, v2 when v1 == v2 || v1 = v2 -> resl_bool s true 
+| v1, v2 when v1 == v2 || v1 = v2 -> resl_true s 
 | SConst (CNum n), SConst (CInt i)
 | SConst (CInt i), SConst (CNum n) -> resl_bool s (float_of_int i = n)
 | SSymb _, _
 | _, SSymb _ -> resl_v s (sop2 "stx=" v1 v2)
-| _, _ -> resl_bool s false
+| _, _ -> resl_false s
 
 let string_plus ~pos v1 v2 s = match v1, v2 with
 | SConst (CString x1), SConst (CString x2) -> resl_str s (x1 ^ x2)
@@ -445,16 +445,16 @@ let has_property ~pos v1 v2 s = match v1, v2 with
       | SHeapLabel label ->
 	  let { attrs ; props } = SHeap.find label s.heap in
 	  if IdMap.mem prop props then
-	    resl_bool s true
+	    resl_true s
 	  else begin match IdMap.find_opt "proto" attrs with
-	  | None -> resl_bool s false
+	  | None -> resl_false s
 	  | Some proto -> has_prop proto
 	  end
       | SSymb _ -> resl_v s (sop2 "has-property?" v1 v2)
-      | _ -> resl_bool s false
+      | _ -> resl_false s
     in
     has_prop v1
-| _, _ -> resl_bool s false
+| _, _ -> resl_false s
 
 let err_op2 ~op ~pos _ _ s = errl ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
