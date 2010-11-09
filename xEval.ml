@@ -158,17 +158,22 @@ let set_attr ~pos attr obj field newval s =
 	  let config = attr_or_false ~pos Config prop in
 	  let writable = attr_or_false ~pos Writable prop in
 	  let new_prop = match attr, newval, config, writable with
-	  | Enum, SConst (CBool _), true, _ -> AttrMap.add Enum newval prop
-	  | Config, SConst (CBool _), true, _ -> AttrMap.add Config newval prop
-	  | Writable, SConst (CBool _), true, _ -> AttrMap.add Writable newval (to_data prop)
-	  | Writable, SConst (CBool false), _, true when is_data prop -> AttrMap.add Writable newval prop
-	  | Writable, SConst (CBool false), _, true -> prop
+	  | Enum, SConst (CBool _), true, _
+	  | Enum, SSymb _, true, _ -> AttrMap.add Enum newval prop
+	  | Config, SConst (CBool _), true, _
+	  | Config, SSymb _, true, _ -> AttrMap.add Config newval prop
+	  | Writable, SConst (CBool _), true, _
+	  | Writable, SSymb _, true, _ -> AttrMap.add Writable newval (to_data prop)
+	  | Writable, SConst (CBool false), _, true
+	  | Writable, SSymb _, _, true when is_data prop -> AttrMap.add Writable newval prop
+	  | Writable, SConst (CBool false), _, true
+	  | Writable, SSymb _, _, true -> prop
 	  | Value, v, _, true -> AttrMap.add Value v (to_data prop)
 	  | Setter, v, true, _ when fun_obj s v -> AttrMap.add Setter newval (to_acc prop)
 	  | Setter, _, true, _ -> prop
 	  | Getter, v, true, _ when fun_obj s v -> AttrMap.add Getter newval (to_acc prop)
 	  | Getter, _, true, _ -> prop
-	  | _ -> failwith (sprintf "%s\nWTF [xeval] set-attr don't know what to do with other values" (pretty_position pos))
+	  | _ -> prop (* failwith (sprintf "%s\nWTF [xeval] set-attr don't know what to do with other values" (pretty_position pos)) *)
 	  in
 	  let o = { attrs ; props = IdMap.add f new_prop props } in
 	  [{ s with heap = SHeap.add label o s.heap ; res = SValue newval }]
