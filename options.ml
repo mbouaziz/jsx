@@ -48,6 +48,7 @@ let opt_eval = ref false
 let opt_fatal = ref false
 let opt_features = ref false
 let opt_pretty = ref false
+let opt_symbols = ref true
 let opt_xeval = ref true
 
 let opt_err_unbound_id_env = ref false
@@ -68,6 +69,7 @@ let arg_speclist =
       "features", opt_features, "listing of used features";
       "fatal", opt_fatal, "fatal errors";
       "pretty", opt_pretty, "pretty printing of code";
+      "symb", opt_symbols, "symbols in symbolic evaluation";
       "xeval", opt_xeval, "symbolic evaluation of code";
     ]
   in

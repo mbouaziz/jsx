@@ -385,6 +385,17 @@ struct
     | [] -> "NO STATE???"
     | sl -> sl |> List.map state |> String.concat "\n\n"
 
+  let nosymb_svalue s = function
+    | SConst (JS.Syntax.CString x) -> x
+    | _ -> failwith "Non-string value"
+
+  let nosymb_io s sio = SIO.to_string (nosymb_svalue s) sio
+
+  let nosymb_state s =
+    [nosymb_io s s.io; res_exn s s.exn]
+    |> List.filter_map (fun msg -> if msg = "" then None else Some msg)
+    |> String.concat "\n"
+
 end
 
 let pretty_position_and_stack = ToString.position_and_stack

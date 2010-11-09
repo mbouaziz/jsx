@@ -60,9 +60,15 @@ let main () =
     let _ = LambdaJS.Eval.eval_expr fine_ljs in
     print_newline ();
   end;
-  if !Options.opt_xeval then
+  if !Options.opt_xeval then begin
     let sl = XEval.xeval fine_ljs SymbolicState.empty_sstate in
-    print_endline (SymbolicState.ToString.state_list sl)
+    if !Options.opt_symbols then
+      print_endline (SymbolicState.ToString.state_list sl)
+    else match sl with
+    | [] -> failwith "No state"
+    | [s] -> print_endline (SymbolicState.ToString.nosymb_state s)
+    | _ -> failwith "Several states"
+  end
 
 let _ =
   Printexc.record_backtrace true;

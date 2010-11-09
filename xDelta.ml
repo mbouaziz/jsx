@@ -276,10 +276,12 @@ let get_property_names ~pos v s = match v with
 | SSymb _ -> resl_v s (sop1 "property-names" v)
 | _ -> throwl_str ~pos s "get-property-names"
 
-let symbol ~pos v s = match v with
+let symbol ~pos v s = if !Options.opt_symbols then match v with
 | SConst (CString id) -> resl_v s (sid (SId.from_string id))
 | SConst (CInt n) -> resl_v s (sid (SId.from_string (string_of_int n)))
 | _ -> errl ~pos s "Error [symbol] Please, don't do stupid things with symbolic id"
+else
+  failwith "Primitive \"symbol\" used with -no-symb option"
 
 let to_int32 ~pos v s = match v with
 | SConst (CInt _) -> resl_v s v
