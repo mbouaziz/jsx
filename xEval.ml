@@ -94,7 +94,7 @@ let rec update_field ~pos obj1 obj2 field newval args s =
 	        |> apply ~pos args [setter]
 		|> List.map (do_no_exn apply_setter)
 		|> List.flatten
-	    | None -> errl ~pos s "Fail [xeval] Field not writable!" (* return s ? *)
+	    | None -> [{ s with res = SValue sundefined }] (* What should be return here ?? *) (* errl ~pos s "Fail [xeval] Field not writable!" *)
 	    end
       | None ->
 	  begin match IdMap.find_opt "proto" attrs with
