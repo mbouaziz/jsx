@@ -65,26 +65,15 @@ open ResHelpers
 open Mk
 
 
-let (|^) sl f =
-  let f' s = match s.exn with
-  | None -> f s |> List.map (fun s' -> match s'.exn with
-			     | None -> { s' with res = SValue (s.res, s'.res) }
-			     | Some e -> { s' with res = SExn e })
-  | Some e -> [{ s with res = SExn e }]
-  in
-  sl |> List.map f' |> List.flatten
-
-let xdelta2 f1 f2 g sl =
-  let g' s = match s.res with
-  | SValue (v1, v2) -> g v1 v2 s
-  | SExn _ as res -> [{ s with res }]
-  in
-  sl |> List.map f1 |> List.flatten |^ f2 |> List.map g' |> List.flatten
+let to_int ~pos x s = match x with
+| SConst (CInt n) -> SValue n
+| SConst (CNum n) -> SValue (int_of_float n)
+| _ -> SExn (throwl_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x)))
 
 let to_float ~pos x s = match x with
-| SConst (CInt n) -> resl_v s (float_of_int n)
-| SConst (CNum n) -> resl_v s n
-| _ -> throwl_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x))
+| SConst (CInt n) -> SValue (float_of_int n)
+| SConst (CNum n) -> SValue n
+| _ -> SExn (throwl_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x)))
 
 
 let float_str = LambdaJS.Delta.float_str
@@ -116,6 +105,18 @@ let get_proto ~pos v s = match v with
     end
 | SSymb _ -> resl_v s (sop1 "get-proto" v)
 | _ -> throwl_str ~pos s "get-proto"
+
+let is_array ~pos v s = match v with
+| SHeapLabel label ->
+    let { attrs ; _ } = SHeap.find label s.heap in
+    begin match IdMap.find_opt "class" attrs with
+    | Some (SConst (CString "Array")) -> resl_true s
+    | Some (SSymb _ as c) -> resl_v s (sop2 "stx=" (SConst (CString "Array")) c)
+    | Some _ -> resl_false s
+    | None -> throwl_str ~pos s "is-array"
+    end
+| SSymb _ -> resl_v s (sop1 "is-array" v)
+| _ -> throwl_str ~pos s "is-array"
 
 let is_callable ~pos v s = match v with
 | SHeapLabel label ->
@@ -302,6 +303,7 @@ let op1 ~pos op v s =
   | "assume" -> assume
   | "fail?" -> fail
   | "get-proto" -> get_proto
+  | "is-array" -> is_array
   | "is-callable" -> is_callable
   | "is-extensible" -> is_extensible
   | "object-to-string" -> object_to_string
@@ -348,17 +350,43 @@ let arith_div ~pos v1 v2 s = arith0 ~pos "/" (/) (/.) infinity v1 v2 s
 
 let arith_mod ~pos v1 v2 s = arith0 ~pos "%" (mod) mod_float nan v1 v2 s
 
-let arith_cmp cmp ~pos v1 v2 s =
-  let make v1 v2 s = resl_v s (bool (cmp v1 v2)) in
-  xdelta2 (to_float ~pos v1) (to_float ~pos v2) make [s]
+let bitwise op2_op i_op ~pos v1 v2 s = match v1, v2 with
+| SSymb _, _
+| _, SSymb _ -> resl_v s (sop2 op2_op v1 v2)
+| _ -> match to_int ~pos v1 s with
+  | SExn sl -> sl
+  | SValue i1 -> match to_int ~pos v2 s with
+    | SExn sl -> sl
+    | SValue i2 -> resl_int s (i_op i1 i2)
 
-let arith_lt ~pos v1 v2 s = arith_cmp (<) ~pos v1 v2 s
+let bitwise_and ~pos v1 v2 s = bitwise "&" (land) ~pos v1 v2 s
 
-let arith_le ~pos v1 v2 s = arith_cmp (<=) ~pos v1 v2 s
+let bitwise_or ~pos v1 v2 s = bitwise "|" (lor) ~pos v1 v2 s
 
-let arith_gt ~pos v1 v2 s = arith_cmp (>) ~pos v1 v2 s
+let bitwise_xor ~pos v1 v2 s = bitwise "^" (lxor) ~pos v1 v2 s
 
-let arith_ge ~pos v1 v2 s = arith_cmp (>=) ~pos v1 v2 s
+let bitwise_shiftl ~pos v1 v2 s = bitwise "<<" (lsl) ~pos v1 v2 s
+
+let bitwise_zfshiftr ~pos v1 v2 s = bitwise ">>>" (lsr) ~pos v1 v2 s
+
+let bitwise_shiftr ~pos v1 v2 s = bitwise ">>" (asr) ~pos v1 v2 s
+
+let arith_cmp op2_op f_cmp ~pos v1 v2 s = match v1, v2 with
+| SSymb _, _
+| _, SSymb _ -> resl_v s (sop2 op2_op v1 v2)
+| _ -> match to_float ~pos v1 s with
+  | SExn sl -> sl
+  | SValue f1 -> match to_float ~pos v2 s with
+    | SExn sl -> sl
+    | SValue f2 -> resl_bool s (f_cmp f1 f2)
+
+let arith_lt ~pos v1 v2 s = arith_cmp "<" (<) ~pos v1 v2 s
+
+let arith_le ~pos v1 v2 s = arith_cmp "<=" (<=) ~pos v1 v2 s
+
+let arith_gt ~pos v1 v2 s = arith_cmp ">" (>) ~pos v1 v2 s
+
+let arith_ge ~pos v1 v2 s = arith_cmp ">=" (>=) ~pos v1 v2 s
 
 let abs_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
@@ -437,6 +465,12 @@ let op2 ~pos op v1 v2 s =
   | "*" -> arith_mul
   | "/" -> arith_div
   | "%" -> arith_mod
+  | "&" -> bitwise_and
+  | "|" -> bitwise_or
+  | "^" -> bitwise_xor
+  | "<<" -> bitwise_shiftl
+  | ">>" -> bitwise_shiftr
+  | ">>>" -> bitwise_zfshiftr
   | "<" -> arith_lt
   | "<=" -> arith_le
   | ">" -> arith_gt
