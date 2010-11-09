@@ -51,6 +51,8 @@ struct
 
   let resl_undef s = resl_v s sundefined
   let resl_bool s b = resl_v s (bool b)
+  let resl_false s = resl_bool s false
+  let resl_true s = resl_bool s true
   let resl_int s i = resl_v s (int i)
   let resl_num s n = resl_v s (num n)
   let resl_str s x = resl_v s (str x)
@@ -171,6 +173,20 @@ let prevent_extensions ~pos v s = match v with
 | SSymb _ -> resl_v s (sop1 "prevent-extensions" v)
 | _ -> throwl_str ~pos s "prevent-extensions"
 
+let prim_to_bool ~pos v s = match v with
+| SConst c ->
+    begin match c with
+    | CUndefined
+    | CNull -> resl_false s
+    | CBool b -> resl_bool s b
+    | CInt i -> resl_bool s (i <> 0)
+    | CNum f -> resl_bool s (f != nan && f <> 0.0 && f <> -0.0)
+    | CString x -> resl_bool s (String.length x <> 0)
+    | CRegexp _ -> resl_true s
+    end
+| SSymb _ -> resl_v s (sop1 "prim->bool" v)
+| _ -> resl_true s
+
 let prim_to_num ~pos v s = match v with
 | SConst c ->
     begin match c with
@@ -289,6 +305,7 @@ let op1 ~pos op v s =
   | "object-to-string" -> object_to_string
   | "own-property-names" -> get_own_property_names
   | "prevent-extensions" -> prevent_extensions
+  | "prim->bool" -> prim_to_bool
   | "prim->num" -> prim_to_num
   | "prim->str" -> prim_to_str
   | "primitive?" -> is_primitive
