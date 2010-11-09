@@ -72,15 +72,15 @@ type err = string
 
 type pos = Lexing.position * Lexing.position
 
-type 'a call = pos * 'a list
+type ('a, 's) call = { call_pos : pos ; call_state : 's ; call_args : 'a list }
 
-type 'a callstack = 'a call list
+type ('a, 's) callstack = ('a, 's) call list
 
 type 'a sexnval = | SBreak of LambdaJS.Values.label * 'a
 		  | SThrow of 'a
 		  | SError of err
 
-type 'a sexn = (pos * 'a callstack) * 'a sexnval
+type ('a, 's) sexn = (pos * ('a, 's) callstack) * 'a sexnval
 
 type 'a predicate =
   (* | PredConst of bool *)
@@ -100,7 +100,7 @@ type env = envlabel IdMmap.t
 
 type 'a envvals = 'a EnvVals.t
 
-type ('a, 'b) state = { pc : 'a pathcondition ; env : env ; envvals : 'a envvals ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; io : 'a SIO.t ; callstack : 'a callstack }
+type ('a, 'b) state = { pc : 'a pathcondition ; env : env ; envvals : 'a envvals ; heap : 'a sheap ; res : 'b ; exn : ('a, ('a, unit) state) sexn option ; io : 'a SIO.t ; callstack : ('a, ('a, unit) state) callstack }
 
 type ('a, 'b) rvalue =
   | SValue of 'a
@@ -118,7 +118,7 @@ and ssymb =
   | SOp2 of string * svalue * svalue
   | SOp3 of string * svalue * svalue * svalue
   | SApp of svalue * svalue list
-and srvalue = (svalue, svalue sexn) rvalue
+and srvalue = (svalue, (svalue, unit sstate) sexn) rvalue
 
 type vsstate = srvalue sstate
 
@@ -301,7 +301,7 @@ struct
     in
     env |> IdMmap.bindings |> List.map unit_binding |> String.concat "\n"
 
-  let scall s (pos, args) = sprintf "Called from %s" (pretty_position ~alone:false pos)
+  let scall s { call_pos ; _ } = sprintf "Called from %s" (pretty_position ~alone:false call_pos)
 
   let scallstack s = List.map (scall s)
 

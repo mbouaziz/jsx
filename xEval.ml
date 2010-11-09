@@ -11,7 +11,7 @@ open XDelta.ResHelpers
 let apply ~pos func args s =
   match func with
   | SClosure c ->
-      { s with callstack = (pos, args)::s.callstack }
+      { s with callstack = { call_pos = pos; call_state = { s with res = () }; call_args = args }::s.callstack }
       |> (c args |> make_closure)
       |> List.map (fun s -> { s with callstack = List.tl s.callstack })
   | _ -> errl ~pos s (sprintf "Error [xeval] Applied non-function, was actually %s" (ToString.svalue s func))
