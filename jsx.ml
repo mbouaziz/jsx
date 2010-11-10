@@ -25,7 +25,7 @@ struct
     in
     lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fname };
     let eseq ljs1 ljs2 =
-      LambdaJS.Syntax.ESeq (LambdaJS.Prelude.dummy_pos, ljs1, ljs2)
+      LambdaJS.Syntax.( { p = LambdaJS.Prelude.dummy_pos ; e = ESeq (ljs1, ljs2) } )
     in
     match code_type with
     | JS -> try_parse JS.Parser.program JS.Lexer.token lexbuf (JS.Interm.from_javascript @> LambdaJS.Desugar.ds_top @> eseq prev_ljs)
@@ -33,7 +33,7 @@ struct
     | Env -> try_parse LambdaJS.Parser.env LambdaJS.Lexer.token lexbuf ((|>) prev_ljs)
 
   let from_inputs input_list =
-    LambdaJS.Syntax.EConst (LambdaJS.Prelude.dummy_pos, JS.Syntax.CUndefined)
+    LambdaJS.Syntax.( { p = LambdaJS.Prelude.dummy_pos ; e = EConst JS.Syntax.CUndefined } )
     |> List.fold_right from_input input_list
 
 end

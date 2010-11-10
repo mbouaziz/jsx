@@ -92,10 +92,10 @@ struct
   open LambdaJS.Syntax
 
   let rec of_exp ljs t =
-    match ljs with
-    | EConst (_, c) -> OfJS.of_const c t
+    match ljs.e with
+    | EConst c -> OfJS.of_const c t
     | EId _ -> FM.inc FEId t
-    | EObject (_, sel, saell) ->
+    | EObject (sel, saell) ->
 	let of_Xe t (_, e) = of_exp e t in
 	let of_ae t (a, e) = t |> FM.inc_attr a |> of_exp e in
 	let of_sael t (_, ael) = List.fold_left of_ae t ael in
@@ -103,26 +103,26 @@ struct
 	let t = List.fold_left of_Xe t sel in
 	let t = List.fold_left of_sael t saell in
 	t
-    | EUpdateFieldSurface (_, e1, e2, e3, e4) -> t |> FM.inc FEUpdateFieldSurface |> of_explist [e1; e2; e3; e4]
-    | EGetFieldSurface (_, e1, e2, e3) -> t |> FM.inc FEGetFieldSurface |> of_explist [e1; e2; e3]
-    | EAttr (_, a, e1, e2) -> t |> FM.inc (FEAttr a) |> of_explist [e1; e2]
-    | ESetAttr (_, a, e1, e2, e3) -> t |> FM.inc (FESetAttr a) |> of_explist [e1; e2; e3]
-    | EDeleteField (_, e1, e2) -> t |> FM.inc FEDeleteField |> of_explist [e1; e2]
-    | ESet (_, _, e) -> t |> FM.inc FESet |> of_exp e
-    | EOp1 (_, op1, e) -> t |> FM.inc (FEOp1 op1) |> of_exp e
-    | EOp2 (_, op2, e1, e2) -> t |> FM.inc (FEOp2 op2) |> of_explist [e1; e2]
-    | EOp3 (_, op3, e1, e2, e3) -> t |> FM.inc (FEOp3 op3) |> of_explist [e1; e2; e3]
-    | EIf (_, e1, e2, e3) -> t |> FM.inc FEIf |> of_explist [e1; e2; e3]
-    | EApp (_, e, el) -> t |> FM.inc FEApp |> of_explist (e::el)
-    | ESeq (_, e1, e2) -> t |> FM.inc FESeq |> of_explist [e1; e2]
-    | ELet (_, _, e1, e2) -> t |> FM.inc FELet |> of_explist [e1; e2]
-    | EFix (_, _, e) -> t |> FM.inc FEFix |> of_exp e
-    | ELabel (_, _, e) -> t |> FM.inc FELabel |> of_exp e
-    | EBreak (_, _, e) -> t |> FM.inc FEBreak |> of_exp e
-    | ETryCatch (_, e1, e2) -> t |> FM.inc FETryCatch |> of_explist [e1; e2]
-    | ETryFinally (_, e1, e2) -> t |> FM.inc FETryFinally |> of_explist [e1; e2]
-    | EThrow (_, e) -> t |> FM.inc FEThrow |> of_exp e
-    | ELambda (_, _, e) -> t |> FM.inc FELambda |> of_exp e
+    | EUpdateFieldSurface (e1, e2, e3, e4) -> t |> FM.inc FEUpdateFieldSurface |> of_explist [e1; e2; e3; e4]
+    | EGetFieldSurface (e1, e2, e3) -> t |> FM.inc FEGetFieldSurface |> of_explist [e1; e2; e3]
+    | EAttr (a, e1, e2) -> t |> FM.inc (FEAttr a) |> of_explist [e1; e2]
+    | ESetAttr (a, e1, e2, e3) -> t |> FM.inc (FESetAttr a) |> of_explist [e1; e2; e3]
+    | EDeleteField (e1, e2) -> t |> FM.inc FEDeleteField |> of_explist [e1; e2]
+    | ESet (_, e) -> t |> FM.inc FESet |> of_exp e
+    | EOp1 (op1, e) -> t |> FM.inc (FEOp1 op1) |> of_exp e
+    | EOp2 (op2, e1, e2) -> t |> FM.inc (FEOp2 op2) |> of_explist [e1; e2]
+    | EOp3 (op3, e1, e2, e3) -> t |> FM.inc (FEOp3 op3) |> of_explist [e1; e2; e3]
+    | EIf (e1, e2, e3) -> t |> FM.inc FEIf |> of_explist [e1; e2; e3]
+    | EApp (e, el) -> t |> FM.inc FEApp |> of_explist (e::el)
+    | ESeq (e1, e2) -> t |> FM.inc FESeq |> of_explist [e1; e2]
+    | ELet (_, e1, e2) -> t |> FM.inc FELet |> of_explist [e1; e2]
+    | EFix (_, e) -> t |> FM.inc FEFix |> of_exp e
+    | ELabel (_, e) -> t |> FM.inc FELabel |> of_exp e
+    | EBreak (_, e) -> t |> FM.inc FEBreak |> of_exp e
+    | ETryCatch (e1, e2) -> t |> FM.inc FETryCatch |> of_explist [e1; e2]
+    | ETryFinally (e1, e2) -> t |> FM.inc FETryFinally |> of_explist [e1; e2]
+    | EThrow e -> t |> FM.inc FEThrow |> of_exp e
+    | ELambda (_, e) -> t |> FM.inc FELambda |> of_exp e
 
   and of_explist el t = List.fold_left (fun t e -> of_exp e t) t el
 

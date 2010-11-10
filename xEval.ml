@@ -198,22 +198,22 @@ let arity_mismatch_err ~pos xl args s =
   errl ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
 
 
-let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
+let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun { p = pos ; e = exp } s ->
   let xeval_nocheck s = match exp with
-  | EConst(_, c) -> resl_v s (SConst c)
-  | EId(pos, x) ->
+  | EConst c -> resl_v s (SConst c)
+  | EId x ->
       begin match IdMmap.find_opt x s.env with
       | Some envlab -> resl_v s (EnvVals.find envlab s.envvals)
       | None -> errl ~pos s (sprintf "Error: [xeval] Unbound identifier: %s in identifier lookup%s" x (if !Options.opt_err_unbound_id_env then sprintf " in env:\n%s" (ToString.senv s s.env) else ""))
       end
-  | ESet(pos, x, e) ->
+  | ESet(x, e) ->
       begin match IdMmap.find_opt x s.env with
       | Some envlab ->
 	  let unit_set v s = [{ s with envvals = EnvVals.add envlab v s.envvals }] in
 	  xeval1 unit_set e s
       | None -> errl ~pos s (sprintf "Error: [xeval] Unbound identifier: %s in set!" x)
       end
-  | EObject(pos, attrs, props) ->
+  | EObject(attrs, props) ->
       let xeval_obj_attr (name, e) sl =
 	let unit_xeval_obj_attr s =
 	  s
@@ -248,7 +248,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       |> List.fold_leftr xeval_prop props
       |> List.map (check_exn make_object)
       |> List.flatten
-  | EUpdateFieldSurface(pos, obj, f, v, args) ->
+  | EUpdateFieldSurface(obj, f, v, args) ->
       let unit_update obj_value f_value v_value args_value s =
 	match obj_value, f_value with
 	| SHeapLabel _, SConst (CString f) ->
@@ -256,7 +256,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| _ -> errl ~pos s (sprintf "Error [xeval] Update field didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval4 unit_update obj f v args s
-  | EGetFieldSurface(pos, obj, f, args) ->
+  | EGetFieldSurface(obj, f, args) ->
       let unit_get obj_value f_value args_value s =
 	let make_err s = sprintf "Error [xeval] Get field didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value) in
 	match obj_value, f_value with
@@ -271,7 +271,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| _ -> errl ~pos s (make_err s)
       in
       xeval3 unit_get obj f args s
-  | EDeleteField(pos, obj, f) ->
+  | EDeleteField(obj, f) ->
       let unit_delete obj_value f_value s =
 	match obj_value, f_value with
 	| SHeapLabel label, SConst (CString f) ->
@@ -284,13 +284,13 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	| _ -> errl ~pos s (sprintf "Error [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in
       xeval2 unit_delete obj f s
-  | EAttr(pos, attr, obj, field) -> xeval2 (get_attr ~pos attr) obj field s
-  | ESetAttr(pos, attr, obj, field, newval) -> xeval3 (set_attr ~pos attr) obj field newval s
-  | EOp1(pos, `Prim1 "envlab", EId(_, x)) -> resl_str s (EnvLabel.to_string (IdMmap.find x s.env))
-  | EOp1(pos, `Prim1 op, e) -> xeval1 (XDelta.op1 ~pos op) e s
-  | EOp2(pos, `Prim2 op, e1, e2) -> xeval2 (XDelta.op2 ~pos op) e1 e2 s
-  | EOp3(pos, `Prim3 op, e1, e2, e3) -> xeval3 (XDelta.op3 ~pos op) e1 e2 e3 s
-  | EIf(pos, c, t, e) ->
+  | EAttr(attr, obj, field) -> xeval2 (get_attr ~pos attr) obj field s
+  | ESetAttr(attr, obj, field, newval) -> xeval3 (set_attr ~pos attr) obj field newval s
+  | EOp1(`Prim1 "envlab", { e = EId x ; _ }) -> resl_str s (EnvLabel.to_string (IdMmap.find x s.env))
+  | EOp1(`Prim1 op, e) -> xeval1 (XDelta.op1 ~pos op) e s
+  | EOp2(`Prim2 op, e1, e2) -> xeval2 (XDelta.op2 ~pos op) e1 e2 s
+  | EOp3(`Prim3 op, e1, e2, e3) -> xeval3 (XDelta.op3 ~pos op) e1 e2 e3 s
+  | EIf(c, t, e) ->
       let unit_if rv s =
 	let sl_t = match PathCondition.add (PredVal rv) s.pc with
 	| Some pc -> xeval t { s with pc }
@@ -303,7 +303,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	sl_t@sl_e
       in
       xeval1 unit_if c s
-  | EApp(pos, func, args) ->
+  | EApp(func, args) ->
       let xeval_arg sl arg =
 	let unit_xeval_arg s =
 	  let unit_add s' = match s'.res with
@@ -330,25 +330,25 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	|> List.flatten
       in
       xeval1 unit_xeval_args_and_apply func s
-  | ESeq(pos, e1, e2) -> s |> xeval e1 |> List.map (xeval e2) |> List.flatten
-  | ELet(pos, x, e, body) ->
+  | ESeq(e1, e2) -> s |> xeval e1 |> List.map (xeval e2) |> List.flatten
+  | ELet(x, e, body) ->
       let unit_let v s = xeval body (bind_var x v s) in
       s
       |> xeval1 unit_let e
       |> List.map (fun s -> { s with env = IdMmap.pop x s.env }) (* important: unbind x ; but envlab must not be unbind in envvals *)
-  | ELabel(pos, l, e) ->
+  | ELabel(l, e) ->
       let unit_check_label s = match s.res with
       | SExn (_, SBreak (l', v)) when l = l' -> { s with exn = None; res = SValue v }
       | _ -> s
       in
       s |> xeval e |> List.map unit_check_label
-  | EBreak(pos, l, e) ->
+  | EBreak(l, e) ->
       let unit_break v s =
 	let exn = Mk.sbreak ~pos s l v in
 	[{ s with exn = Some exn ; res = SExn exn }]
       in
       xeval1 unit_break e s
-  | ETryCatch(pos, body, catch) ->
+  | ETryCatch(body, catch) ->
       let unit_catch s = match s.res with
       | SExn (_, SThrow msg) ->
 	  let unit_apply_catch s = match s.res with
@@ -359,7 +359,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
       | _ -> [s]
       in
       s |> xeval body |> List.map unit_catch |> List.flatten
-  | ETryFinally(pos, body, fin) ->
+  | ETryFinally(body, fin) ->
       let unit_finally s =
 	match s.res with
 	| SValue _ -> xeval fin s
@@ -370,13 +370,13 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	    |> List.map (fun s' -> { s' with exn = s.exn ; res = s.res })
       in
       s |> xeval body |> List.map unit_finally |> List.flatten
-  | EThrow(pos, e) ->
+  | EThrow e ->
       let unit_throw v s =
 	let exn = Mk.sthrow ~pos s v in
 	[{ s with exn = Some exn ; res = SExn exn }]
       in
       xeval1 unit_throw e s
-  | ELambda(pos, xl, e) ->
+  | ELambda(xl, e) ->
       let lambda args s_caller =
 	if List.length args != List.length xl then
 	  arity_mismatch_err ~pos xl args s_caller
@@ -389,7 +389,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  |> List.map (fun s -> { s with env = s_caller.env })
       in
       resl_v s (SClosure lambda)
-  | EFix(_, x, ELambda(pos, xl, e)) ->
+  | EFix(x, { p = pos ; e = ELambda(xl, e) }) ->
       let envlab = EnvLabel.fresh () in
       let rec lambda args s_caller =
 	if List.length args != List.length xl then
@@ -401,7 +401,7 @@ let rec xeval : 'a. fine_exp -> 'a sstate -> vsstate list = fun exp s ->
 	  |> List.map (fun s -> { s with env = s_caller.env })
       in
       resl_v s (SClosure lambda)
-  | EFix(pos, x, e) -> errl ~pos s "Error [xeval] Arbritrary EFix NYI"
+  | EFix(x, e) -> errl ~pos s "Error [xeval] Arbritrary EFix NYI"
   in
   check_exn xeval_nocheck s
 
