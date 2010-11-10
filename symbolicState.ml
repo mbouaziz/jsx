@@ -392,9 +392,12 @@ struct
   let nosymb_io s sio = SIO.to_string (nosymb_svalue s) sio
 
   let nosymb_state s =
-    [nosymb_io s s.io; res_exn s s.exn]
-    |> List.filter_map (fun msg -> if msg = "" then None else Some msg)
-    |> String.concat "\n"
+    let io = nosymb_io s s.io in
+    let exn = res_exn s s.exn in
+    if exn = "" then
+      io, None
+    else
+      io, Some exn
 
 end
 

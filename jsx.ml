@@ -6,14 +6,14 @@ struct
 
   let try_parse parse lexe lexbuf f =
     let curpos lexbuf =
-      LambdaJS.Prelude.string_of_position (lexbuf.Lexing.lex_curr_p, lexbuf.Lexing.lex_curr_p)
+      pretty_position (lexbuf.Lexing.lex_curr_p, lexbuf.Lexing.lex_curr_p)
     in
     let x = try parse lexe lexbuf with
     | Failure "lexing: empty token" ->
-	failwith (sprintf "Lexical error at %s" (curpos lexbuf))
+	failwith (sprintf "%s\nLexical error" (curpos lexbuf))
     | JS.Parser.Error
     | LambdaJS.Parser.Error ->
-        failwith (sprintf "Parse error at %s; unexpected token %s" (curpos lexbuf) (Lexing.lexeme lexbuf))
+        failwith (sprintf "%s\nParse error: unexpected token \"%s\"" (curpos lexbuf) (Lexing.lexeme lexbuf))
     in f x
 
   let from_input (code_type, input_type) prev_ljs =
@@ -41,6 +41,7 @@ end
 
 let main () =
   Options.arg_parse ();
+  Printexc.record_backtrace !Options.opt_backtrace;
   if !Options.inputs = [] then
     Options.error_usage "No input";
   if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
@@ -66,17 +67,23 @@ let main () =
       print_endline (SymbolicState.ToString.state_list sl)
     else match sl with
     | [] -> failwith "No state"
-    | [s] -> print_endline (SymbolicState.ToString.nosymb_state s)
+    | [s] -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
+      print_endline io;
+      begin match exn_opt with
+      | None -> ()
+      | Some exn ->
+	  print_endline exn;
+	  if !Options.opt_fatal then
+	    exit 1
+      end
     | _ -> failwith "Several states"
   end
 
 let _ =
   Printexc.record_backtrace true;
-  let _ = try main () with
+  try main () with
     e ->
       print_endline (Printexc.to_string e);
-      Printexc.print_backtrace stdout
-  in
-  (* pp_print_flush std_formatter (); *)
-  (* pp_print_flush err_formatter (); *)
-  ()
+      if !Options.opt_backtrace then
+	Printexc.print_backtrace stdout;
+      exit 1
