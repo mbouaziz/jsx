@@ -1,6 +1,7 @@
 *~
 _log
 _build
+_install
 *.native
 *.byte
 *.d.native

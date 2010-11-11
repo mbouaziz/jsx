@@ -55,24 +55,25 @@ let opt_xeval = ref true
 let opt_err_unbound_id_env = ref false
 
 
+let boolspeclist =
+  [
+    "assumptions", opt_assumptions, "showing of assumptions";
+    "backtrace", opt_backtrace, "recording of backtrace";
+    "eval", opt_eval, "evaluation of code";
+    "features", opt_features, "listing of used features";
+    "fatal", opt_fatal, "fatal errors";
+    "pretty", opt_pretty, "pretty printing of code";
+    "symb", opt_symbols, "symbols in symbolic evaluation";
+    "xeval", opt_xeval, "symbolic evaluation of code";
+  ]
+
+
 let arg_speclist =
   let speclist =
     [
       "-js", Arg.String (add_file inputs JS), "<file> Load <file> as JavaScript";
-      "-ljs", Arg.String (add_file inputs LJS), "<file> Load <file> as LambaJS.ES5";
+      "-ljs", Arg.String (add_file inputs LJS), "<file> Load <file> as LambaJS-ES5";
       "-env", Arg.String (add_file inputs Env), "<file> Load <file> as environment (LambdaJS.ES5)";
-    ]
-  in
-  let boolspeclist =
-    [
-      "assumptions", opt_assumptions, "showing of assumptions";
-      "backtrace", opt_backtrace, "recording of backtrace";
-      "eval", opt_eval, "evaluation of code";
-      "features", opt_features, "listing of used features";
-      "fatal", opt_fatal, "fatal errors";
-      "pretty", opt_pretty, "pretty printing of code";
-      "symb", opt_symbols, "symbols in symbolic evaluation";
-      "xeval", opt_xeval, "symbolic evaluation of code";
     ]
   in
   let turn l (name, r, meaning) =

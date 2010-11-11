@@ -1,2 +1,2 @@
-<*>: rectypes, annot, pkg_ES5
-<jsx.*>: use_unix
+<**/*>: rectypes, annot, pkg_ES5
+<**/*.native>: use_unix
