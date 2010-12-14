@@ -34,7 +34,7 @@ var show_file = function (f)
   $("#status").html('File "' + f + '" loaded').show().delay(2500).fadeOut(1500);
   $("#jsx_src").val(loaded_files[f]);
   var ext = lang_tr[f.substr(f.lastIndexOf('.') + 1)];
-  $('#jsx_lang[value="' + ext + '"]').click();
+  $('#jsx_lang_' + ext).click();
 };
 
 var load_sample = function ()
