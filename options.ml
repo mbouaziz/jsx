@@ -57,14 +57,14 @@ let opt_err_unbound_id_env = ref false
 
 let boolspeclist =
   [
-    "assumptions", opt_assumptions, "showing of assumptions";
-    "backtrace", opt_backtrace, "recording of backtrace";
-    "eval", opt_eval, "evaluation of code";
-    "features", opt_features, "listing of used features";
+    "assumptions", opt_assumptions, "display assumptions";
+    "backtrace", opt_backtrace, "record backtrace";
+    "eval", opt_eval, "evaluate code";
+    "features", opt_features, "list used features";
     "fatal", opt_fatal, "fatal errors";
-    "pretty", opt_pretty, "pretty printing of code";
+    "pretty", opt_pretty, "pretty print code";
     "symb", opt_symbols, "symbols in symbolic evaluation";
-    "xeval", opt_xeval, "symbolic evaluation of code";
+    "xeval", opt_xeval, "symbolically evaluate code";
   ]
 
 

@@ -376,7 +376,7 @@ struct
     |> collect_labels s (SIO.values s.io)
     |> collect_labels s (callstack_values s.callstack)
     in
-    ["assum", assumptions s s.pc; "pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "io", io s s.io]
+    ["assum", assumptions s s.pc; "pc", pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "out", io s s.io]
     |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			  Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
     |> String.concat "\n"
