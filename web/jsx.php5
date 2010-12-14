@@ -1,4 +1,6 @@
 <?
+  require_once('config.php5');
+
   function jsx($src, $lang, $env, $opt)
   {
     $descriptorspec = array(
@@ -16,7 +18,7 @@
     foreach ($opt as $opt_name => $b)
       $cmd_opt .= ($b ? '-' : '-no-') . $opt_name . ' ';
     
-    $cmd = "./jsx.native $cmd_opt -$lang STDIN $cmd_env";
+    $cmd = jsx_bin . " $cmd_opt -$lang STDIN $cmd_env";
 
     $process = proc_open($cmd, $descriptorspec, $pipes);
     
@@ -35,8 +37,10 @@
     
     $res = '';
     
+    /*
     if ($ret)
       $res .= '<span class="err">Return code ' . $ret . '</span>';
+    */
       
     $res .= '<pre>' . $stdout . '<pre>';
     

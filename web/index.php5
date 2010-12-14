@@ -1,67 +1,73 @@
 <?
 error_reporting(-1);
+  require_once 'config.php5';
+  require_once 'utilities.php5';
   require_once 'lang_options.php5';
   require_once 'env_options.php5';
   require_once 'bool_options.php5';
-  require_once 'jsx.php5';
-
-  function request_string($id)
-  {
-    return isset($_REQUEST[$id]) ? stripslashes($_REQUEST[$id]) : '';
-  }
-
-  function request_bool($id, $def = false)
-  {
-    return isset($_REQUEST[$id]) ? (bool)$_REQUEST[$id] : $def;
-  }
-
-  function request_var_in_array($id, $arr, $def)
-  {
-    if (!isset($_REQUEST[$id]))
-      return $def;
-    $v = $_REQUEST[$id];
-    if (isset($arr[$v]))
-      return $v;
-    return $def;
-  }
   
-  function request_bool_array($id, $arr)
-  {
-    $r = array();
-    foreach ($arr as $k => $v)
-      $r[$k] = isset($_REQUEST[$id][$k]) ? (bool)$_REQUEST[$id][$k] : false;
-    return $r;
-  }
-
-  $jsx_src = request_string('jsx_src');
-  $jsx_do = request_bool('jsx_do');
-  $firstlang = each($langlist);
-  $jsx_lang = request_var_in_array('jsx_lang', $langlist, $firstlang[0]);
-  $jsx_env = request_bool_array('jsx_env', $envlist);
-  $jsx_opt = request_bool_array('jsx_opt', $boolspeclist);
+  $jsx_version = 'JSX (' . date(DATE_COOKIE, filemtime(jsx_bin)) . ')';
 ?>
 <html>
  <head>
-  <title>Jsx Web</title>
+  <title>JSX Web</title>
+  <script type="text/javascript" src="jquery-1.4.4.min.js"></script>
+  <script type="text/javascript">
+<?
+  echo php_to_js_array('lang_tr', $lang_tr);
+?>
+  </script>
+  <script type="text/javascript" src="jsxweb.js"></script>
  </head>
  <body>
 <div>
-<form action="<?= $PHP_SELF ?>" method="POST">
-<input type="hidden" name="jsx_do" value="1" />
+<form id="main_form">
 <table>
  <tr>
   <td>
-<textarea name="jsx_src" cols="80" rows="20"><?= $jsx_src ?></textarea>
+   <table>
+    <tr><td><?= $jsx_version ?></td>
+     <td align="right">
+<input type="button" id="doc" value="Documentation" />
+<select id="sel_file">
+ <option value="" selected="selected">Sample files here</option>
+<?
+  function options_of_dir($dt)
+  {
+    list($beg, $end) = ($dt['n'] != '' && !empty($dt['f'])) ? array('<optgroup label="' . $dt['n'] . '">', '</optgroup>') : array('', '');
+    
+    echo $beg;
+    
+    foreach ($dt['f'] as $f => $loc)
+      echo '<option value="', $loc, '">', $f, '</option>', "\n";
+      
+    foreach ($dt['d'] as $d)
+      options_of_dir($d);
+    
+    echo $end;
+  }
+
+  options_of_dir(dir_tree('', samples_dir . '/', $lang_tr));
+?>
+</select>
+<input type="button" id="load_sample" value="Load" />
+     </td>
+    </tr>
+    <tr><td colspan="2">
+<textarea name="jsx_src" id="jsx_src" cols="80" rows="20"></textarea>
+    </td></tr>
+   </table>
   </td>
   <td>
    <table>
 <?
 $id = 'jsx_lang';
+$checked = 'checked="checked" ';
 foreach ($langlist as $lang => $desc)
 {
-  $checked = $jsx_lang == $lang ? 'checked="checked" ' : '';
 	echo '<tr><td><input type="radio" name="', $id, '" id="', $id, '" value="', $lang, '" ', $checked, '/></td>',
 	     '<td><label for="', $id, '">', $desc, '</label></td></tr>';
+	$checked = '';
 }
 
 echo '<tr><td colspan="2"><hr /></td></tr>';
@@ -69,9 +75,9 @@ echo '<tr><td colspan="2"><hr /></td></tr>';
 foreach ($envlist as $filename => $default_checked)
 {
 	$id = "jsx_env[$filename]";
-	$checked = ($jsx_do && $jsx_env[$filename]) || (!$jsx_do && $default_checked) ? 'checked="checked" ' : '';
+	$checked = $default_checked ? 'checked="checked" ' : '';
 	echo '<tr><td><input type="checkbox" name="', $id, '" id="', $id, '" value="1" ', $checked, '/></td>',
-	     '<td><label for="', $id, '"><a href="', $filename, '">', $filename, '</a></label></td></tr>';
+	     '<td><a href="', $filename, '">', $filename, '</a></td></tr>';
 }
 
 echo '<tr><td colspan="2"><hr /></td></tr>';
@@ -80,30 +86,22 @@ foreach ($boolspeclist as $opt => $opt_a)
 {
 	list($default_checked, $desc) = $opt_a;
 	$id = "jsx_opt[$opt]";
-	$checked = ($jsx_do && $jsx_opt[$opt]) || (!$jsx_do && $default_checked) ? 'checked="checked" ' : '';
+	$checked = $default_checked ? 'checked="checked" ' : '';
 	echo '<tr><td><input type="checkbox" name="', $id, '" id="', $id, '" value="1" ', $checked, '/></td>',
 	     '<td><label for="', $id, '">', $desc, '</label></td></tr>';
 }
 ?>
     <tr><td colspan="2"><hr /></td></tr>
-    <tr>
-     <td>&nbsp;</td>
-     <td><input type="submit" /></td>
-    </tr>
    </table>
   </td>
  </tr>
  <tr>
+  <td><div id="status" /></td>
+  <td><input type="submit" /></td>
+ </tr>
 </table>
 </form>
 </div>
-<div>
-<?
-  if ($jsx_do)
-  {
-    echo jsx($jsx_src, $jsx_lang, $jsx_env, $jsx_opt);
-  }
-?>
-</div>
+<div id="result" />
  </body>
 </html>
