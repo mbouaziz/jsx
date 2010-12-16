@@ -9,16 +9,26 @@
       2 => array("pipe", "w")
     );
     
+    $cmd_pre = '';
     $cmd_env = '';
-    foreach ($env as $filename => $b)
-      if ($b)
+    $cmd_post = '';
+    foreach ($env as $filename => $type)
+      if ($type == 'pre-js')
+        $cmd_pre .= "-js $filename ";
+      else if ($type == 'pre-ljs' || $type == 'pre-es5')
+        $cmd_pre .= "-ljs $filename ";
+      else if ($type == 'env')
         $cmd_env .= "-env $filename ";
-        
+      else if ($type == 'post-js')
+        $cmd_post .= "-js $filename ";
+      else if ($type == 'post-ljs' || $type == 'post-es5')
+        $cmd_post .= "-ljs $filename ";
+
     $cmd_opt = '';
     foreach ($opt as $opt_name => $b)
       $cmd_opt .= ($b ? '-' : '-no-') . $opt_name . ' ';
     
-    $cmd = jsx_bin . " $cmd_opt -$lang STDIN $cmd_env";
+    $cmd = jsx_bin . " $cmd_opt $cmd_pre -$lang STDIN $cmd_post $cmd_env";
 
     $process = proc_open($cmd, $descriptorspec, $pipes);
     

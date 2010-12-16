@@ -9,7 +9,7 @@
   Select the language you want to use.
   The JavaScript parser is from LambdaJS, there is no automatic semi-colon insertion.
   
-  You can select the environments to use.
+  You can select the environments [env] to use.
   A code won't run without es5-lib.es5 (LambdaJS standard library).
   symbolic.es5 is an additional environment allowing to use:
   - symbol("X") for the symbolic value @X
@@ -17,6 +17,8 @@
   - assume_primitive(expr) to assume that expr is of a primitive type
   - assume_callable(expr) to assume that expr is a callable object
   - assume_string(expr) to assume that expr is of type string
+
+  The environments [pre-js] [post-js] are used by some test suites.
   
   Options:
   - display assumptions

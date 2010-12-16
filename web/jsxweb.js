@@ -7,7 +7,9 @@ jQuery.fn.select_value = function (v)
       if (this[i].value == v)
         return this[i].selected = "selected";
   });
-}
+};
+
+jQuery.fn.check = function (b) { return this.each(function () { this.checked = b === false ? "" : "checked"; }); };
 
 var loaded_files = new Array();
 
@@ -39,7 +41,19 @@ var show_file = function (f)
 
 var load_sample = function ()
 {
-  var f = $("#sel_file").val();
+  var fia = $("#sel_file").val().split("|");
+
+  var f = $.trim(fia[0]);
+
+  for (var e in envlist)
+    document.getElementById("jsx_env_" + e).checked = envlist[e][1];
+  for (var i = 1 ; i < fia.length ; i++)
+  {
+    var e = $.trim(fia[i]);
+    var b = e[0] != "!";
+    if (!b) e = e.substr(1);
+    document.getElementById("jsx_env_" + e).checked = b;
+  }
   
   if (f == "")
     return;

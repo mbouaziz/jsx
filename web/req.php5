@@ -40,5 +40,12 @@ error_reporting(-1);
   $jsx_env = request_bool_array('jsx_env', $envlist);
   $jsx_opt = request_bool_array('jsx_opt', $boolspeclist);
   
+  foreach ($envlist as $filename => $infos)
+  {
+    list($type) = $infos;
+    if($jsx_env[$filename])
+      $jsx_env[$filename] = $type;
+  }
+  
   echo jsx($jsx_src, $jsx_lang, $jsx_env, $jsx_opt);
 ?>

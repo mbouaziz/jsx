@@ -18,6 +18,7 @@ web: jsx
 	cp _build/jsx.native web/_install/
 	cp web/*.php5 web/*.js web/_install/
 	cp symbolic.es5 ../lambdaJS/data/es5-lib.es5 web/_install/
+	cp ../lambdaJS/tests/ES5conform/SimpleTestHarness/ljs_harness.js ../lambdaJS/tests/ES5conform/SimpleTestHarness/ljs-run.js web/_install/
 	mkdir web/_install/samples
 	mv web/_install/Documentation.js web/_install/samples
 	ln -fs ../../../tests/with-symbols web/_install/samples/A
@@ -28,3 +29,4 @@ web: jsx
 
 clean-web:
 	rm -rf web/_install
+

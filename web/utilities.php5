@@ -1,16 +1,36 @@
 <?
-  function php_to_js_array($n, $a) // no escape & co
+  function to_js($v) // no escape & co
   {
-    $r = 'var ' . $n . ' = {';
-    foreach ($a as $k => $v)
-      $r .= "'$k': '$v',";
-    $r .= '};';
-    return $r;
+    switch (gettype($v))
+    {
+      case 'boolean':
+        return $v ? 'true' : 'false';
+      case 'integer':
+      case 'double':
+      case 'float':
+        return "$v";
+      case 'string':
+        return "'$v'";
+      case 'NULL':
+        return 'null';
+      case 'array':
+        $r = '{';
+        foreach ($v as $k => $w)
+          $r .= "'$k': " . to_js($w) . ',';
+        $r .= '}';
+        return $r;
+     }
+     return 'undefined' . ' /* ' . gettype($v) . ' */';
+  }
+
+  function var_to_js($n, $v)
+  {
+    return 'var ' . $n . ' = ' . to_js($v) . ";\n";
   }
 
   function dir_tree($name, $prefix, $filter_ext)
   {
-    $r = array( 'n' => '', 'f' => array(), 'd' => array() );
+    $r = array( 'n' => '', 'f' => array(), 'd' => array(), 'of' => array() );
     $files = scandir($prefix . $name);
     foreach ($files as $f)
     {
@@ -25,6 +45,8 @@
       }
       else if (isset($filter_ext[pathinfo($full, PATHINFO_EXTENSION)]))
         $r['f'][$f] = $loc;
+      else
+        $r['of'][$f] = $full;
     }
     return $r;
   }
