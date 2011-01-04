@@ -6,7 +6,7 @@ OCBOPTIONS=-j 2 -classic-display
 all: jsx
 
 jsx:
-	ocamlbuild $(OCBOPTIONS) -lflags -ccopt,-static jsx.native
+	ocamlbuild $(OCBOPTIONS) jsx.native
 
 clean:
 	ocamlbuild $(OCBOPTIONS) -clean
