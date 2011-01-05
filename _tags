@@ -1,3 +1,4 @@
 <**/*>: rectypes, annot, pkg_ES5
 <**/*.native>: use_unix
 <jsx.native>: static
+"z3": -traverse

@@ -1,0 +1,4 @@
+ocaml/z3.cma
+ocaml/z3.cmxa
+ocaml/z3.a
+ocaml/libz3stubs.a

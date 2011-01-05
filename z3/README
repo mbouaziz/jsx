@@ -1,0 +1,13 @@
+To install Linux version of Z3 bindings for OCaml:
+
+* You need ocaml, ocamlidl, ocamlbuild, ocamlfind
+* Merge this directory with your linux distribution of Z3
+* Run: make ocaml && sudo make install
+
+To use it in your project:
+
+* Modify your myocamlbuild.ml file so that you can use tags pkg_XXX
+  For example, use:
+  http://brion.inria.fr/gallium/index.php/Using_ocamlfind_with_ocamlbuild
+* Add the following line to your _tags
+  <YOUR_PROGRAM.*>: pkg_Z3

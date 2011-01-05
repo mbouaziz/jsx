@@ -1,0 +1,6 @@
+version = "2.12"
+description = "Z3"
+
+archive(native) = "libz3stubs.a z3.cmxa"
+archive(byte) = "libz3stubs.a z3.cma"
+linkopts = "-cclib -lz3"
