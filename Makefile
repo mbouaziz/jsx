@@ -1,7 +1,7 @@
 
 OCBOPTIONS=-j 2 -classic-display
 
-.PHONY: all jsx clean web clean-web
+.PHONY: all jsx clean web clean-web ldconf
 
 all: jsx
 
@@ -30,3 +30,5 @@ web: jsx
 clean-web:
 	rm -rf web/_install
 
+ldconf:
+	ldconfig "`ocamlfind query Z3`"

@@ -36,8 +36,19 @@ struct
 
 end
 
+module OtherOptions =
+struct
+
+  let _get_ctx : (unit -> Z3.context) ref = ref (fun () -> assert false)
+
+  let smt_trace filename =
+    if not (Z3.trace_to_file (!_get_ctx ()) filename) then
+      failwith (sprintf "Unable to set SMT trace to file \"%s\"" filename)
+
+end
 
 open Inputs
+open OtherOptions
 
 (* inputs *)
 let inputs = ref []
@@ -49,6 +60,7 @@ let opt_eval = ref false
 let opt_fatal = ref false
 let opt_features = ref false
 let opt_pretty = ref false
+let opt_smt = ref true
 let opt_symbols = ref true
 let opt_xeval = ref true
 
@@ -63,6 +75,7 @@ let boolspeclist =
     "features", opt_features, "list used features";
     "fatal", opt_fatal, "fatal errors";
     "pretty", opt_pretty, "pretty print code";
+    "smt", opt_smt, "SMT solver";
     "symb", opt_symbols, "symbols in symbolic evaluation";
     "xeval", opt_xeval, "symbolically evaluate code";
   ]
@@ -74,6 +87,7 @@ let arg_speclist =
       "-js", Arg.String (add_file inputs JS), "<file> Load <file> as JavaScript";
       "-ljs", Arg.String (add_file inputs LJS), "<file> Load <file> as LambaJS-ES5";
       "-env", Arg.String (add_file inputs Env), "<file> Load <file> as environment (LambdaJS.ES5)";
+      "-smt-trace", Arg.String smt_trace, "<file> Enable SMT trace messages to a file (won't include SMT env)";
     ]
   in
   let turn l (name, r, meaning) =

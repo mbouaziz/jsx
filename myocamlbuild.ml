@@ -43,8 +43,9 @@ let _ = dispatch begin function
        (* on the contrary using After_options will guarantee to have the higher priority *)
 
        (* override default commands by ocamlfind ones *)
-       Options.ocamlc     := ocamlfind & A"ocamlc";
-       Options.ocamlopt   := ocamlfind & A"ocamlopt";
+       (* always use -rectypes, otherwise it doesn't work with menhir --infer *)
+       Options.ocamlc     := ocamlfind & S[A"ocamlc";A"-rectypes"];
+       Options.ocamlopt   := ocamlfind & S[A"ocamlopt";A"-rectypes"];
        Options.ocamldep   := ocamlfind & A"ocamldep";
        Options.ocamldoc   := ocamlfind & A"ocamldoc";
        Options.ocamlmktop := ocamlfind & A"ocamlmktop"
