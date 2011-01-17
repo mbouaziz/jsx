@@ -4,16 +4,17 @@ open MyPervasives
 open SymbolicState
 open JS.Syntax
 open LambdaJS.Syntax
+module PC = Smt.PathCondition
 
 module ResHelpers =
 struct
   let resl_v s v = [{ s with res = SValue v }]
   let resl_rv_if s v_c rv_t rv_e =
-    let sl = match PathCondition.add (PredVal v_c) s.pc, rv_t with
+    let sl = match PC.add (PredVal v_c) s.pc, rv_t with
     | None, _ -> []
     | Some pc, SValue _ -> [{ s with pc ; res = rv_t }]
     | Some pc, SExn e -> [{ s with pc ; exn = Some e ; res = rv_t }]
-    in match PathCondition.add (PredNotVal v_c) s.pc, rv_e with
+    in match PC.add (PredNotVal v_c) s.pc, rv_e with
     | None, _ -> sl
     | Some pc, SValue _ -> { s with pc ; res = rv_e }::sl
     | Some pc, SExn e -> { s with pc ; exn = Some e ; res = rv_e }::sl
@@ -93,7 +94,7 @@ let const_typeof ~fname ~pos c s = match c with
 (* Unary operators *)
 
 let assume ~pos v s =
-  match PathCondition.add_assumption (PredVal v) s.pc with
+  match PC.add_assumption (PredVal v) s.pc with
   | None -> errl ~pos s "This assumption is surely false!"
   | Some pc -> [{ s with res = SValue strue; pc }]
 
@@ -117,7 +118,7 @@ let eval ~pos v s = match v with
 	    |> xeval fine_ljs
 	    |> List.map (fun s' -> { s' with env = s.env })
     end
-| SSymb _ -> resl_v s (sop1 "eval" v)
+| SSymb _ -> errl ~pos s "Eval of a symbolic value" (* resl_v s (sop1 "eval" v) *)
 | _ -> throwl_str ~pos s "eval"
 
 let fail ~pos v s = resl_false s (* no such thing in my implementation *)

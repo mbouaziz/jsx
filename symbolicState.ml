@@ -126,8 +126,7 @@ type vsstate = srvalue sstate
 
 module PathCondition =
 struct
-  open JS.Syntax
-
+  type pred = svalue predicate
   type t = svalue pathcondition
 
   let pc_true : t = []
@@ -135,46 +134,6 @@ struct
   let opp = function
     | PredVal x -> PredNotVal x
     | PredNotVal x -> PredVal x
-
-  let mem_pred p pc =
-    let eq_p { pred } = pred = p in
-    List.exists eq_p pc
-
-  let reduce_const = function
-    | CUndefined
-    | CNull -> Some false
-    | CBool b -> Some b
-    | CInt n -> Some (n <> 0)
-    | CNum n -> Some (n != nan && n <> 0.0 && n <> -0.0)
-    | CString s -> Some (String.length s <> 0)
-    | CRegexp _ -> Some true
-
-  let reduce_val v pc = match v with
-    | SConst c -> reduce_const c
-    | SHeapLabel _ -> Some true
-    | _ -> None
-
-  let not_opt = function
-    | None -> None
-    | Some b -> Some (not b)
-
-  let reduce p pc = match p with
-  | PredVal v -> reduce_val v pc
-  | PredNotVal v -> reduce_val v pc |> not_opt
-
-  let add ?(assumption=false) p pc =
-    match reduce p pc with
-    | Some true -> Some pc
-    | Some false -> None
-    | None ->
-	if mem_pred p pc then
-	  Some pc
-	else if mem_pred (opp p) pc then
-	  None
-	else
-	  Some ({ pred = p; is_assumption = assumption }::pc)
-
-  let add_assumption = add ~assumption:true
 
   let predval = function
     | PredVal v
@@ -209,11 +168,6 @@ let do_no_exn f s =
   match s.res with
   | SValue v -> f v s
   | SExn _ -> [s]
-
-module Pretty = (* output a printer *)
-struct
-
-end
 
 module ToString = (* output a string *)
 struct
