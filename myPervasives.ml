@@ -1,5 +1,5 @@
 
-open LambdaJS.Prelude
+include LambdaJS.Prelude
 
 let (|>) x f = f x
 let (@>) f g x = g (f x)
@@ -41,6 +41,23 @@ struct
   let fold_leftr2 f l1 l2 acc =
     let f' a x1 x2 = f x1 x2 a in
     fold_left2 f' acc l1 l2
+
+  let fold_map f acc l =
+    let f' (acc, l) elt = let acc, elt = f acc elt in acc, (elt::l) in
+    let acc, l = fold_left f' (acc, []) l in
+    acc, (rev l)
+
+  let fold_map_i f acc l =
+    let f' (acc, i, l) elt = let acc, elt = f acc i elt in acc, (i+1), (elt::l) in
+    let acc, _, l = fold_left f' (acc, 0, []) l in
+    acc, (rev l)
+
+  let rec fold_left3 : ('a -> 'b -> 'c -> 'd -> 'a) -> 'a -> 'b list -> 'c list -> 'd list -> 'a =
+    fun f acc l1 l2 l3 ->
+      match l1, l2, l3 with
+      | [], [], [] -> acc
+      | h1::t1, h2::t2, h3::t3 -> fold_left3 f (f acc h1 h2 h3) t1 t2 t3
+      | _ -> raise (Invalid_argument "fold_left3")
 end
 
 
@@ -58,6 +75,15 @@ struct
 
   let interline ?(sep='\n') ins = nsplit_char sep @> concat (sprintf "%c%s" sep ins)
 
+  let after s i = sub s i (length s - i)
+  let left s n = sub s 0 (min n (length s))
+
+  let for_all p s =
+    let res = ref true in
+    iter (fun c -> if not (p c) then res := false) s;
+    !res
+
+  let is_numeric = for_all (fun c -> c >= '0' && c <= '9')
 end
 
 
@@ -74,8 +100,41 @@ struct
 
 end
 
-module StringMap = Map.Make(String)
+module Array =
+struct
+  include Array
 
+  let fold_map : ('a -> 'b -> 'a * 'c) -> 'a -> 'b array -> 'a * 'c array =
+    fun f acc arr ->
+      let f' (acc, lst) elt = let acc, elt = f acc elt in acc, (elt::lst) in
+      let acc, lst = Array.fold_left f' (acc, []) arr in
+      acc, (Array.of_list (List.rev lst))
+
+  let fold_map_i : ('a -> int -> 'b -> 'a * 'c) -> 'a -> 'b array -> 'a * 'c array =
+    fun f acc arr ->
+      let f' (acc, i, lst) elt = let acc, elt = f acc i elt in acc, (i+1), (elt::lst) in
+      let acc, _, lst = Array.fold_left f' (acc, 0, []) arr in
+      acc, (Array.of_list (List.rev lst))
+
+  let fold_left_i : ('a -> int -> 'b -> 'a) -> 'a -> 'b array -> 'a =
+    fun f acc arr ->
+      let f' (acc, i) elt = (f acc i elt), (i + 1) in
+      fst (Array.fold_left f' (acc, 0) arr)
+
+  let fold_left2 : ('a -> 'b -> 'c -> 'a) -> 'a -> 'b array -> 'c array -> 'a =
+    fun f acc arr1 arr2 ->
+      assert (length arr1 = length arr2);
+      let f' (acc, i) elt1 = (f acc elt1 arr2.(i)), (i+1) in
+      fst (Array.fold_left f' (acc, 0) arr1)
+
+  let split : ('a * 'b) array -> 'a array * 'b array =
+    fun a ->
+      let n = length a in
+      (init n (fun i -> fst (a.(i)))), (init n (fun i -> snd (a.(i))))
+end
+
+module StringMap = Map.Make(String)
+module StringMmap = MultiMap.Make(String)
 module IdMmap = MultiMap.Make(IdOrderedType)
 
 
@@ -90,3 +149,12 @@ let pretty_position ?(alone=true) (p, e) =
 
 let warning msg =
   prerr_endline (sprintf "Warning: %s" msg)
+
+let run_under_backtrace f check_print =
+  Printexc.record_backtrace true;
+  try f () with
+    e ->
+      print_endline (Printexc.to_string e);
+      if check_print() then
+	Printexc.print_backtrace stdout;
+      exit 1

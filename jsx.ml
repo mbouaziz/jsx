@@ -79,11 +79,4 @@ let main () =
     | _ -> failwith "Several states"
   end
 
-let _ =
-  Printexc.record_backtrace true;
-  try main () with
-    e ->
-      print_endline (Printexc.to_string e);
-      if !Options.opt_backtrace then
-	Printexc.print_backtrace stdout;
-      exit 1
+let _ = run_under_backtrace main Options.check_print_backtrace

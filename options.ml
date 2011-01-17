@@ -104,3 +104,5 @@ let arg_parse () = Arg.parse arg_speclist (add_any_file inputs) arg_usage
 let error_usage errmsg =
   Arg.usage arg_speclist (errmsg ^ "\n\n" ^ arg_usage);
   exit 1
+
+let check_print_backtrace () = !opt_backtrace
