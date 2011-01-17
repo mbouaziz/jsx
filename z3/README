@@ -11,3 +11,7 @@ To use it in your project:
   http://brion.inria.fr/gallium/index.php/Using_ocamlfind_with_ocamlbuild
 * Add the following line to your _tags
   <YOUR_PROGRAM.*>: pkg_Z3
+
+TODO:
+
+* with flag static, should use libz3.a
