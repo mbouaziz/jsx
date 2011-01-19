@@ -86,14 +86,22 @@ struct
   let mk_var name sort = Z3.mk_const ctx (Z3.mk_string_symbol ctx name) sort
 end
 
+type 'a _predicate =
+  | PredVal of 'a
+  | PredNotVal of 'a
+type 'a _pathcomponent = { pred : 'a _predicate ; is_assumption : bool }
+type 'a _pathcondition = 'a _pathcomponent list (* big And *)
+
+type ('t, 's) predicate = ('t, 's) SymbolicValue._svalue _predicate
+type ('t, 's) pathcomponent = ('t, 's) SymbolicValue._svalue _pathcomponent
+type ('t, 's) pathcondition = ('t, 's) SymbolicValue._svalue _pathcondition
+
 module VC :
 sig
   (* returns true if satisfiable or unknown *)
-  val check_sat : SymbolicState.PathCondition.pred -> SymbolicState.PathCondition.t -> bool
+  val check_sat : ('t, 's) predicate -> ('t, 's) pathcondition -> bool
 end =
 struct
-  open SymbolicState
-
   module ToSMT =
   struct
     open Env
@@ -140,13 +148,13 @@ struct
 
     let of_app v l = failwith "No SMT implementation for symbolic applications"
 
-    let rec of_symb = function
+    let rec of_symb = let open SymbolicValue in function
       | SId sid -> SMT.mk_var ("symb" ^ (SId.to_string sid)) S.jsVal
       | SOp1 (o, x) -> of_op1 o (of_svalue x)
       | SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
       | SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)
       | SApp (v, l) -> of_app (of_svalue v) (List.map of_svalue l)
-    and of_svalue = function
+    and of_svalue = let open SymbolicValue in function
       | SConst c -> of_const c
       | SClosure _ -> assert false (* really shouldn't happen *)
       | SHeapLabel _ -> assert false (* NYI, don't know what to do now *)
@@ -180,18 +188,27 @@ struct
 
 end
 
-module PathCondition =
+module PC =
 struct
-  include SymbolicState.PathCondition
+  let pc_true : ('t, 's) pathcondition = []
 
-  open SymbolicState
-  open JS.Syntax
+  let opp = function
+    | PredVal x -> PredNotVal x
+    | PredNotVal x -> PredVal x
+
+  let predval = function
+    | PredVal v
+    | PredNotVal v -> v
+
+  let rec values = function
+    | [] -> []
+    | { pred }::pc -> (predval pred)::(values pc)
 
   let mem_pred p pc =
     let eq_p { pred } = pred = p in
     List.exists eq_p pc
 
-  let reduce_const = function
+  let reduce_const = let open JS.Syntax in function
     | CUndefined
     | CNull -> Some false
     | CBool b -> Some b
@@ -200,7 +217,7 @@ struct
     | CString s -> Some (String.length s <> 0)
     | CRegexp _ -> Some true
 
-  let reduce_val v pc = match v with
+  let reduce_val v pc = let open SymbolicValue in match v with
     | SConst c -> reduce_const c
     | SHeapLabel _ -> Some true
     | _ -> None
@@ -227,6 +244,27 @@ struct
 	else
 	  None
 
-  let add_assumption = add ~assumption:true
+  let add_assumption p pc = add ~assumption:true (PredVal p) pc
+
+end
+
+module ToString =
+struct
+  let predicate ~brackets ~string_of_svalue s = function
+    | PredVal v -> string_of_svalue ~brackets s v
+    | PredNotVal v -> sprintf "Not(%s)" (string_of_svalue ~brackets:false s v)
+
+  let pathcomponent ~brackets ~assumptions ~string_of_svalue s = function
+    | { is_assumption = is_a ; pred } when is_a = assumptions -> Some (predicate ~brackets ~string_of_svalue s pred)
+    | _ -> None
+
+  let pathcondition ~string_of_svalue s = function
+    | [] -> "True"
+    | pc -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:false ~string_of_svalue s) pc)
+
+  let assumptions ~string_of_svalue s = function
+    | _ when !Options.opt_assumptions = false -> ""
+    | [] -> ""
+    | pc -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:true ~string_of_svalue s) pc)
 
 end

@@ -62,12 +62,14 @@ let main () =
     print_newline ();
   end;
   if !Options.opt_xeval then begin
-    let sl = XEval.xeval fine_ljs SymbolicState.empty_sstate in
+    let sl = XEval.xeval fine_ljs SymbolicState.SState.first in
     if !Options.opt_symbols then
-      print_endline (SymbolicState.ToString.state_list sl)
-    else match sl with
-    | [] -> failwith "No state"
-    | [s] -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
+      print_endline (SymbolicState.ToString.state_set sl)
+    else if SymbolicState.SState.is_empty sl then
+      failwith "No state"
+    else match SymbolicState.SState.get_singleton sl with
+    | None -> failwith "Several states"
+    | Some s -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
       print_endline io;
       begin match exn_opt with
       | None -> ()
@@ -76,7 +78,6 @@ let main () =
 	  if !Options.opt_fatal then
 	    exit 1
       end
-    | _ -> failwith "Several states"
   end
 
 let _ = run_under_backtrace main Options.check_print_backtrace
