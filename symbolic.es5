@@ -1,8 +1,40 @@
 {
-  global["symbol" = function(s){return prim("symbol",s)}];
+  global["symbol" = function(s){
+    return prim("symbol",s)
+  }];
+  global["symbol_bool" = function(s){
+    return prim("symbol_bool",s)
+  }];
+  global["symbol_int" = function(s){
+    return prim("symbol_int",s)
+  }];
+  global["symbol_float" = function(s){
+    return prim("symbol_num",s)
+  }];
+  global["symbol_num" = function(s){
+    return prim("symbol_num",s)
+  }];
+  global["symbol_string" = function(s){
+    return prim("symbol_string",s)
+  }];
+//    let (x = prim("symbol",s))
+//    prim("assume",prim("primitive?",x));
+//    prim("assume",prim("stx=",prim("typeof",x),"bool"));
+//    x
+//  }];
 // TODO: cast content of assume to boolean
-  global["assume" = function(e){return prim("assume",e)}];
-  global["assume_primitive" = function(e){return prim("assume",prim("primitive?",e))}];
-  global["assume_callable" = function(e){return prim("assume",prim("is-callable",e))}];
-  global["assume_string" = function(e){return prim("assume",prim("primitive?",e)); prim("assume",prim("stx=",prim("typeof",e),"string"))}]
+  global["assume" = function(e){
+    return prim("assume",e)
+  }];
+  global["assume_primitive" = function(e){
+    return prim("assume",prim("primitive?",e))
+  }];
+  global["assume_callable" = function(e){
+    return prim("assume",prim("is-callable",e))
+  }];
+  global["assume_string" = function(e){
+    return
+    prim("assume",prim("primitive?",e));
+    prim("assume",prim("stx=",prim("typeof",e),"string"))
+  }]
 }

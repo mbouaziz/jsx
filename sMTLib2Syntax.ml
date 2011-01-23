@@ -2,7 +2,7 @@
 type pos = Lexing.position * Lexing.position
 
 type numeral = string
-type decimal = string
+type decimal = string * string
 type hexadecimal = string
 type binary = string
 
@@ -16,6 +16,10 @@ type constant =
   | Binary of binary
   | String of string
 
+type index =
+  | INumeral of numeral
+  | ISymbol of symbol
+
 type s_expr =
   | EConstant of constant
   | ESymbol of symbol
@@ -27,7 +31,7 @@ type attribute_value =
   | ASymbol of symbol
   | AApp of s_expr list
 
-type identifier = symbol * numeral list
+type identifier = symbol * index list
 type attribute = keyword * attribute_value option
 type sort = identifier * sort list
 type shorthand_sort = identifier * sort
@@ -64,6 +68,7 @@ type command =
   | GetAssignment
   | GetOption of keyword
   | Exit
+  | Define of (symbol * sorted_var list * term)
   | DefineSorts of shorthand_sort list
   | DeclareDatatypes of datatype list
 
@@ -73,6 +78,12 @@ module Mk =
 struct
 
   let dummy_pos = Lexing.dummy_pos, Lexing.dummy_pos
+
+  module Index =
+  struct
+    let numeral pos x = INumeral x
+    let symbol pos x = ISymbol x
+  end
 
   module Const =
   struct
@@ -172,6 +183,7 @@ struct
     let get_assignment pos () = GetAssignment
     let get_option pos k = GetOption k
     let app_exit pos () = Exit
+    let define pos x sl t = Define (x, sl, t)
     let define_sorts pos s = DefineSorts s
     let declare_datatypes pos d = DeclareDatatypes d
   end

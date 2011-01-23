@@ -45,6 +45,18 @@ struct
     if not (Z3.trace_to_file (!_get_ctx ()) filename) then
       failwith (sprintf "Unable to set SMT trace to file \"%s\"" filename)
 
+  let opt_smt_log = ref false
+  let och_smt_log = ref stderr
+  (* let opt_smt_log = ref true *)
+  (* let och_smt_log = ref (open_out "z3.log") *)
+
+  let smt_log filename =
+    if !och_smt_log <> stderr then
+      close_out !och_smt_log;
+    och_smt_log := (try open_out filename with
+    | Sys_error err -> failwith (sprintf "Unable to set SMT log to file \"%s\": %s" filename err) );
+    opt_smt_log := true
+
 end
 
 open Inputs
@@ -59,6 +71,7 @@ let opt_backtrace = ref true
 let opt_eval = ref false
 let opt_fatal = ref false
 let opt_features = ref false
+let opt_interactive = ref false
 let opt_pretty = ref false
 let opt_smt = ref true
 let opt_symbols = ref true
@@ -74,10 +87,11 @@ let boolspeclist =
     "eval", opt_eval, "evaluate code";
     "features", opt_features, "list used features";
     "fatal", opt_fatal, "fatal errors";
+    "interactive", opt_interactive, "interactive mode";
     "pretty", opt_pretty, "pretty print code";
     "smt", opt_smt, "SMT solver";
     "symb", opt_symbols, "symbols in symbolic evaluation";
-    "xeval", opt_xeval, "symbolically evaluate code";
+    "xeval", opt_xeval, "symbolic evaluation";
   ]
 
 
@@ -87,6 +101,7 @@ let arg_speclist =
       "-js", Arg.String (add_file inputs JS), "<file> Load <file> as JavaScript";
       "-ljs", Arg.String (add_file inputs LJS), "<file> Load <file> as LambaJS-ES5";
       "-env", Arg.String (add_file inputs Env), "<file> Load <file> as environment (LambdaJS.ES5)";
+      "-smt-log", Arg.String smt_log, "<file> Enable SMT log to a file (won't include SMT env)";
       "-smt-trace", Arg.String smt_trace, "<file> Enable SMT trace messages to a file (won't include SMT env)";
     ]
   in

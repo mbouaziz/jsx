@@ -32,7 +32,7 @@ module Mk = SMTLib2Syntax.Mk
 %token GetUnsatCore GetValue GetAssignment GetOption
 %token GetInfo Exit
 
-%token DefineSorts DeclareDatatypes
+%token DefineSorts DeclareDatatypes Define
 
 %token LParen RParen
 %token LSqBracket RSqBracket Colon
@@ -56,14 +56,18 @@ s_expr:
   | x=Keyword { Mk.SExpr.keyword ($startpos, $endpos) x }
   | LParen x=s_expr* RParen { Mk.SExpr.app ($startpos, $endpos) x }
 
-numeral_indexes_r:
-  | x=Numeral RSqBracket { [x] }
-  | x=Numeral Colon l=numeral_indexes_r { x::l }
+index:
+  | x=Numeral { Mk.Index.numeral ($startpos, $endpos) x }
+  | x=Symbol { Mk.Index.symbol ($startpos, $endpos) x }
+
+indexes_r:
+  | x=index RSqBracket { [x] }
+  | x=index Colon l=indexes_r { x::l }
 
 identifier:
   | x=Symbol { Mk.Id.symbol ($startpos, $endpos) x }
-  | LParen Underscore s=Symbol nl=Numeral+ RParen { Mk.Id.indexed_symbol ($startpos, $endpos) s nl }
-  | s=Symbol LSqBracket nl=numeral_indexes_r { Mk.Id.indexed_symbol ($startpos, $endpos) s nl }
+  | LParen Underscore s=Symbol il=index+ RParen { Mk.Id.indexed_symbol ($startpos, $endpos) s il }
+  | s=Symbol LSqBracket il=indexes_r { Mk.Id.indexed_symbol ($startpos, $endpos) s il }
 
 attribute_value:
   | x=spec_constant { Mk.AttrVal.constant ($startpos, $endpos) x }
@@ -130,6 +134,8 @@ command:
   | LParen GetAssignment RParen { Mk.Cmd.get_assignment ($startpos, $endpos) () }
   | LParen GetOption k=Keyword RParen { Mk.Cmd.get_option ($startpos, $endpos) k }
   | LParen Exit RParen { Mk.Cmd.app_exit ($startpos, $endpos) () }
+  | LParen Define LParen x=Symbol s=sorted_var* RParen t=term RParen { Mk.Cmd.define ($startpos, $endpos) x s t }
+  | LParen Define x=Symbol t=term RParen { Mk.Cmd.define ($startpos, $endpos) x [] t }
   | LParen DefineSorts LParen s=shorthand_sort* RParen RParen { Mk.Cmd.define_sorts ($startpos, $endpos) s }
   | LParen DeclareDatatypes LParen d=datatype* RParen RParen { Mk.Cmd.declare_datatypes ($startpos, $endpos) d }
 

@@ -242,12 +242,18 @@ let get_property_names ~pos v s = match v with
 | SSymb _ -> SState.res_op1 "property-names" v s
 | _ -> SState.throw_str ~pos s "get-property-names"
 
-let symbol ~pos v s = if !Options.opt_symbols then match v with
-| SConst (CString id) -> SState.res_id (SId.from_string id) s
-| SConst (CInt n) -> SState.res_id (SId.from_string (string_of_int n)) s
-| _ -> SState.err ~pos s "Error [symbol] Please, don't do stupid things with symbolic id"
+let _symbol f_name id_kind ~pos v s = if !Options.opt_symbols then match v with
+| SConst (CString id) -> SState.res_id (SId.from_string id) id_kind s
+| SConst (CInt n) -> SState.res_id (SId.from_string (string_of_int n)) id_kind s
+| _ -> SState.err ~pos s (sprintf "Error [%s] Please, don't do stupid things with symbolic id" f_name)
 else
-  failwith "Primitive \"symbol\" used with -no-symb option"
+  failwith (sprintf "Primitive \"%s\" used with -no-symb option" f_name)
+
+let symbol = _symbol "symbol" SymbolicValue.SymbAny
+let symbol_bool = _symbol "symbol_bool" SymbolicValue.SymbBool
+let symbol_int = _symbol "symbol_int" SymbolicValue.SymbInt
+let symbol_num = _symbol "symbol_num" SymbolicValue.SymbNum
+let symbol_string = _symbol "symbol_string" SymbolicValue.SymbStr
 
 let to_int32 ~pos v s = match v with
 | SConst (CInt _) -> SState.res_v v s
@@ -283,6 +289,10 @@ let op1 ~pos op v s =
   | "property-names" -> get_property_names
   | "surface-typeof" -> surface_typeof
   | "symbol" -> symbol
+  | "symbol_bool" -> symbol_bool
+  | "symbol_int" -> symbol_int
+  | "symbol_num" -> symbol_num
+  | "symbol_string" -> symbol_string
   | "to-int32" -> to_int32
   | "typeof" -> typeof
   | op -> err_op1 ~op

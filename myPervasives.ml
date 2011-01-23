@@ -60,30 +60,100 @@ struct
       | _ -> raise (Invalid_argument "fold_left3")
 end
 
+module Big_int =
+struct
+  include Big_int
+
+  (* shift_right finally returns 0 with a positive sign *)
+  (* will be fixed in OCaml >= 3.12.1 *)
+  let buggy_zero_big_int = shift_right_towards_zero_big_int (big_int_of_int 1) 1
+
+  let count_bits bi = assert (ge_big_int bi zero_big_int);
+    let rec aux bi =
+      if eq_big_int bi zero_big_int || eq_big_int bi buggy_zero_big_int then
+	0
+      else
+	1 + (aux (shift_right_towards_zero_big_int bi 1))
+    in aux bi
+
+  let simplify_fraction (h, l) =
+    let gcd = gcd_big_int h l in
+    div_big_int h gcd, div_big_int l gcd
+
+  let is_int_fraction (h, l) =
+    is_int_big_int h && is_int_big_int l
+
+  let int_of_fraction (h, l) =
+    (int_of_big_int h, int_of_big_int l)
+end
 
 module String =
 struct
   include String
 
+  let after s i = sub s i (length s - i)
+  let left s n = sub s 0 (min n (length s))
+
+  let split2 char_sep s =
+    try let i = index s char_sep in left s i, after s (i+1) with
+      Not_found -> s, ""
+
   let nsplit_char char_sep s =
     let rec aux i =
       try let j = index_from s i char_sep in (sub s i (j-i))::(aux (j+1)) with
       | Invalid_argument _ -> [""]
-      | Not_found -> [sub s i (length s - i)]
+      | Not_found -> [after s i]
     in
     if s = "" then [] else aux 0
 
   let interline ?(sep='\n') ins = nsplit_char sep @> concat (sprintf "%c%s" sep ins)
-
-  let after s i = sub s i (length s - i)
-  let left s n = sub s 0 (min n (length s))
 
   let for_all p s =
     let res = ref true in
     iter (fun c -> if not (p c) then res := false) s;
     !res
 
-  let is_numeric = for_all (fun c -> c >= '0' && c <= '9')
+  let pad_left c len s =
+    let l = length s in
+    if l >= len then
+      s
+    else
+      let r = String.make len c in
+      String.blit s 0 r (len - l) l;
+      r
+
+  module Numeric =
+  struct
+    let is_numeric = for_all (fun c -> c >= '0' && c <= '9')
+
+    let is_zero = for_all ((=) '0')
+  end
+
+  (* Converts an ASCII string to a big_int
+     First char corresponds to the 8-lowest bits
+  *)
+  let to_big_int s =
+    let rec aux i bi =
+      if i < 0 then
+	bi
+      else
+	bi
+	|> Big_int.mult_int_big_int 256
+	|> Big_int.add_int_big_int (Char.code s.[i])
+	|> aux (i-1)
+    in aux ((length s) - 1) Big_int.zero_big_int
+
+  let of_big_int =
+    let bi256 = Big_int.big_int_of_int 256 in
+    let rec aux bi =
+    if Big_int.eq_big_int bi Big_int.zero_big_int then
+      ""
+    else
+      let q, r = Big_int.quomod_big_int bi bi256 in
+      let l = Big_int.int_of_big_int r |> Char.chr |> String.make 1 in
+      let h = aux q in
+      l ^ h
+    in aux
 end
 
 
@@ -127,10 +197,27 @@ struct
       let f' (acc, i) elt1 = (f acc elt1 arr2.(i)), (i+1) in
       fst (Array.fold_left f' (acc, 0) arr1)
 
+  let fold_leftr2 : ('a -> 'b -> 'c -> 'c) -> 'a array -> 'b array -> 'c -> 'c =
+    fun f arr1 arr2 acc ->
+      assert (length arr1 = length arr2);
+      let f' (acc, i) elt1 = (f elt1 arr2.(i) acc), (i+1) in
+      fst (Array.fold_left f' (acc, 0) arr1)
+
+
   let split : ('a * 'b) array -> 'a array * 'b array =
     fun a ->
       let n = length a in
       (init n (fun i -> fst (a.(i)))), (init n (fun i -> snd (a.(i))))
+
+  let find_map : ('a -> 'b option) -> 'a array -> 'b option =
+    fun f a ->
+      let l = length a in
+      let rec aux i =
+	if i = l then None
+	else match f a.(i) with
+	| Some x -> Some x
+	| None -> aux (i+1)
+      in aux 0
 end
 
 module StringMap = Map.Make(String)

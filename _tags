@@ -1,4 +1,4 @@
 true: rectypes, annot, pkg_ES5, pkg_Z3, use_menhir
-<**/*.native>: use_unix
+<**/*.native>: use_unix, use_nums
 false and <jsx.native>: static
 "z3": -traverse

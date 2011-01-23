@@ -12,7 +12,7 @@ let symb1 = ['0'-'9' 'A'-'Z' 'a'-'z' '~' '!' '@' '$' '%' '^' '&' '*' '_' '-' '+'
 
 let binary = bin+
 let numeral = '0' | (['1'-'9'] digit*)
-let decimal = numeral '.' '0'* numeral
+let numeral_z = digit*
 let hexadecimal = hex+
 let symbol = symb0 symb1*
 
@@ -30,40 +30,41 @@ rule token = parse
   | ']' { RSqBracket }
   | "#b" (binary as x) { Binary x }
   | "#x" (hexadecimal as x) { Hexadecimal x }
-  | decimal as x { Decimal x }
+  | (numeral as h) '.' (numeral_z as l) { Decimal (h, l) }
   | numeral as x { Numeral x }
   | '"' { String (string_lit '"' [] lexbuf) }
-  | "par" { Par }
-  | "NUMERAL" { NUMERAL }
-  | "DECIMAL" { DECIMAL }
-  | "STRING" { STRING }
   | '_' { Underscore }
   | '!' { Excl }
+  | "DECIMAL" { DECIMAL }
+  | "NUMERAL" { NUMERAL }
+  | "STRING" { STRING }
+  | "assert" { Assert }
   | "as" { As }
-  | "let" { Let }
-  | "forall" { ForAll }
-  | "exists" { Exists }
-  | "set-logic" { SetLogic }
-  | "set-option" { SetOption }
-  | "set-info" { SetInfo }
+  | "check-sat" { CheckSat }
+  | "declare-datatypes" { DeclareDatatypes }
+  | "declare-fun" { DeclareFun }
   | "declare-sort" { DeclareSort }
+  | "define-fun" { DefineFun }
   | "define-sorts" { DefineSorts }
   | "define-sort" { DefineSort }
-  | "declare-fun" { DeclareFun }
-  | "define-fun" { DefineFun }
-  | "push" { Push }
-  | "pop" { Pop }
-  | "assert" { Assert }
-  | "check-sat" { CheckSat }
+  | "define" { Define }
+  | "exists" { Exists }
+  | "exit" { Exit }
+  | "forall" { ForAll }
   | "get-assertions" { GetAssertions }
+  | "get-assignment" { GetAssignment }
+  | "get-info" { GetInfo }
+  | "get-option" { GetOption }
   | "get-proof" { GetProof }
   | "get-unsat-core" { GetUnsatCore }
   | "get-value" { GetValue }
-  | "get-assignment" { GetAssignment }
-  | "get-option" { GetOption }
-  | "get-info" { GetInfo }
-  | "exit" { Exit }
-  | "declare-datatypes" { DeclareDatatypes }
+  | "let" { Let }
+  | "par" { Par }
+  | "pop" { Pop }
+  | "push" { Push }
+  | "set-info" { SetInfo }
+  | "set-logic" { SetLogic }
+  | "set-option" { SetOption }
   | symbol as x { Symbol x }
   | '|' { Symbol (quoted_symbol '|' [] lexbuf) }
   | ':' (symbol as x) { Keyword x }

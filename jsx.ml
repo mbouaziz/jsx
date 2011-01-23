@@ -62,12 +62,42 @@ let main () =
     print_newline ();
   end;
   if !Options.opt_xeval then begin
-    let sl = XEval.xeval fine_ljs SymbolicState.SState.first in
+    let set = XEval.xeval fine_ljs SymbolicState.SState.first in
     if !Options.opt_symbols then
-      print_endline (SymbolicState.ToString.state_set sl)
-    else if SymbolicState.SState.is_empty sl then
+      let print_state () s =
+	print_endline (SymbolicState.ToString.state s);
+	print_endline "";
+	if !Options.opt_interactive then begin
+	  let rec read_interaction () =
+	    print_string "[N]ext(default)/[A]ll/[M]odel/[S]hort model/Reprint [P]ath/[Q]uit ? ";
+	    flush stdout;
+	    let ans = String.lowercase (read_line ()) in
+	    if ans = "" || ans = "n" then
+	      ()
+	    else if ans = "a" then begin
+	      Options.opt_interactive := false;
+	      ()
+	    end else if ans = "m" then begin
+	      print_endline (SymbolicState.ToString.model s);
+	      read_interaction ()
+	    end else if ans = "s" then begin
+	      print_endline (SymbolicState.ToString.short_model s);
+	      read_interaction ()
+	    end else if ans = "p" then begin
+	      print_endline (SymbolicState.ToString.state s);
+read_interaction ()
+	    end else if ans = "q" then
+	      exit 1
+	    else
+	      read_interaction ()
+	  in
+	  read_interaction ();
+	end;
+      in
+      SymbolicState.SState.fold print_state () set
+    else if SymbolicState.SState.is_empty set then
       failwith "No state"
-    else match SymbolicState.SState.get_singleton sl with
+    else match SymbolicState.SState.get_singleton set with
     | None -> failwith "Several states"
     | Some s -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
       print_endline io;

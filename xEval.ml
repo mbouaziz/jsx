@@ -259,8 +259,8 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	    (* resl_rv_if s *)
             (*   (Mk.sop1 "primitive?" obj_value) *)
 	    (*   (SExn (Mk.serr ~pos s (make_err s))) *)
-            (*   (SValue (Mk.sop2 "get_field" obj_value f_value)) *)
-	    SState.res_v (Mk.sop2 "get_field" obj_value f_value) s
+            (*   (SValue (Mk.sop2 "get-field" obj_value f_value)) *)
+	    SState.res_v (Mk.sop2 "get-field" obj_value f_value) s
 	| _ -> SState.err ~pos s (make_err s)
       in
       xeval3 unit_get obj f args s

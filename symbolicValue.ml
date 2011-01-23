@@ -32,7 +32,7 @@ struct
   let to_string t = sprintf "@%s" t
 end
 
-
+type sid_attr = SymbAny | SymbBool | SymbInt | SymbNum | SymbStr
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
@@ -43,7 +43,7 @@ type ('t, 's) _svalue = (* 't is a state, 's is a state set *)
   | SHeapLabel of sheaplabel
   | SSymb of ('t, 's) _ssymb
 and ('t, 's) _ssymb =
-  | SId of sid
+  | SId of sid * sid_attr
   | SOp1 of string * ('t, 's) _svalue
   | SOp2 of string * ('t, 's) _svalue * ('t, 's) _svalue
   | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
@@ -67,5 +67,5 @@ struct
   let sop2 o v1 v2 = SSymb (SOp2(o, v1, v2))
   let sop3 o v1 v2 v3 = SSymb (SOp3(o, v1, v2, v3))
   let sapp v vl = SSymb (SApp(v, vl))
-  let sid id = SSymb (SId id)
+  let sid id k = SSymb (SId (id, k))
 end
