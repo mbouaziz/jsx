@@ -1,6 +1,5 @@
-a = symbol("A");
-b = symbol("B");
-assume_primitive(a);
+a = symbol_string("A");
+b = symbol_bool("B");
 
 if (b)
     print(1);
