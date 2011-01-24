@@ -134,18 +134,63 @@ pop symb env.funs }
     | ("-", []), ast_list
     | ("sub", []), ast_list -> Z3.mk_sub env.context (Array.of_list ast_list)
     | ("~", []), [x] -> Z3.mk_sub env.context [| x |]
-    | ("real2int", []), [x] -> Z3.mk_real2int env.context x
+    | ("/", []), [x;y]
+    | ("div", []), [x;y] -> Z3.mk_div env.context x y
+    | ("%", []), [x;y]
+    | ("mod", []), [x;y] -> Z3.mk_mod env.context x y
+    | ("rem", []), [x;y] -> Z3.mk_rem env.context x y
+    | ("<", []), [x;y]
+    | ("lt", []), [x;y] -> Z3.mk_lt env.context x y
+    | ("<=", []), [x;y]
+    | ("le", []), [x;y] -> Z3.mk_le env.context x y
+    | (">", []), [x;y]
+    | ("gt", []), [x;y] -> Z3.mk_gt env.context x y
+    | (">=", []), [x;y]
+    | ("ge", []), [x;y] -> Z3.mk_ge env.context x y
     | ("to_real", []), [x] -> Z3.mk_int2real env.context x
-    | ("bv2int", []), [x] -> Z3.mk_bv2int env.context x false
-    | ("bv2int", [ISymbol "Int"]), [x] -> Z3.mk_bv2int env.context x true
-    | ("int2bv", [INumeral num]), [x] -> Z3.mk_int2bv env.context (int_of_string num) x
+    | ("real2int", []), [x] -> Z3.mk_real2int env.context x
+    | ("is_int", []), [x] -> Z3.mk_is_int env.context x
+    | ("bvnot", []), [x] -> Z3.mk_bvnot env.context x
+    | ("bvredand", []), [x] -> Z3.mk_bvredand env.context x
+    | ("bvredor", []), [x] -> Z3.mk_bvredor env.context x
+    | ("bvand", []), [x;y] -> Z3.mk_bvand env.context x y
+    | ("bvor", []), [x;y] -> Z3.mk_bvor env.context x y
+    | ("bvxor", []), [x;y] -> Z3.mk_bvxor env.context x y
+    | ("bvnand", []), [x;y] -> Z3.mk_bvnand env.context x y
+    | ("bvnor", []), [x;y] -> Z3.mk_bvnor env.context x y
+    | ("bvxnor", []), [x;y] -> Z3.mk_bvxnor env.context x y
+    | ("bvneg", []), [x] -> Z3.mk_bvneg env.context x
     | ("bvadd", []), [x;y] -> Z3.mk_bvadd env.context x y
     | ("bvsub", []), [x;y] -> Z3.mk_bvsub env.context x y
-    | ("bvor", []), [x;y] -> Z3.mk_bvor env.context x y
-    | ("bvshl", []), [x;y] -> Z3.mk_bvshl env.context x y
+    | ("bvmul", []), [x;y] -> Z3.mk_bvmul env.context x y
+    | ("bvudiv", []), [x;y] -> Z3.mk_bvudiv env.context x y
+    | ("bvsdiv", []), [x;y] -> Z3.mk_bvsdiv env.context x y
+    | ("bvurem", []), [x;y] -> Z3.mk_bvurem env.context x y
+    | ("bvsrem", []), [x;y] -> Z3.mk_bvsrem env.context x y
+    | ("bvsmod", []), [x;y] -> Z3.mk_bvsmod env.context x y
+    | ("bvult", []), [x;y] -> Z3.mk_bvult env.context x y
+    | ("bvslt", []), [x;y] -> Z3.mk_bvslt env.context x y
+    | ("bvule", []), [x;y] -> Z3.mk_bvule env.context x y
+    | ("bvsle", []), [x;y] -> Z3.mk_bvsle env.context x y
+    | ("bvuge", []), [x;y] -> Z3.mk_bvuge env.context x y
+    | ("bvsge", []), [x;y] -> Z3.mk_bvsge env.context x y
+    | ("bvugt", []), [x;y] -> Z3.mk_bvugt env.context x y
+    | ("bvsgt", []), [x;y] -> Z3.mk_bvsgt env.context x y
     | ("concat", []), [x;y] -> Z3.mk_concat env.context x y
-    | ("zero_ext", [INumeral size]), [x] -> Z3.mk_zero_ext env.context (int_of_string size) x
     | ("extract", [INumeral h; INumeral l]), [x] -> Z3.mk_extract env.context (int_of_string h) (int_of_string l) x
+    | ("sign_ext", [INumeral size]), [x] -> Z3.mk_sign_ext env.context (int_of_string size) x
+    | ("zero_ext", [INumeral size]), [x] -> Z3.mk_zero_ext env.context (int_of_string size) x
+    | ("repeat", [INumeral size]), [x] -> Z3.mk_repeat env.context (int_of_string size) x
+    | ("bvshl", []), [x;y] -> Z3.mk_bvshl env.context x y
+    | ("bvlshr", []), [x;y] -> Z3.mk_bvlshr env.context x y
+    | ("bvashr", []), [x;y] -> Z3.mk_bvashr env.context x y
+    | ("rotate_left", [INumeral n]), [x] -> Z3.mk_rotate_left env.context (int_of_string n) x
+    | ("rotate_right", [INumeral n]), [x] -> Z3.mk_rotate_right env.context (int_of_string n) x
+    (* | ("ext_rotate_left", []), [x;y] -> Z3.mk_ext_rotate_left env.context x y *)
+    (* | ("ext_rotate_right", []), [x;y] -> Z3.mk_ext_rotate_right env.context x y *)
+    | ("int2bv", [INumeral num]), [x] -> Z3.mk_int2bv env.context (int_of_string num) x
+    | ("bv2int", []), [x] -> Z3.mk_bv2int env.context x false
+    | ("bv2int", [ISymbol "Int"]), [x] -> Z3.mk_bv2int env.context x true
 	(* TODO *)
     | (symb, [INumeral num_bv_size]), [] when is_bv_const symb -> (* bit-vectors initializers, like bv0[32] *)
 	Z3.mk_numeral env.context (get_bv_const symb) (Z3.mk_bv_sort env.context (int_of_string num_bv_size))
