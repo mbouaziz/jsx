@@ -45,76 +45,113 @@
 (define-fun |str:string| () string (mk-string bv6[32] |bvstr:string|[128]))
 (define-fun str-ERROR () string (mk-string (bvsub bv0[32] bv1[32]) (bvsub bv0[128] bv1[128])))
 
-(define (VErrToBool (e err)) false)
-
-(define (ValToBool (v jsVal))
-  (and (not (or (is_VUndefined v) (is_VNull v)))
-  (ite (is_VBool v) (b v)
-  (ite (is_VInt v) (not (= (i v) iZero))
-  (ite (is_VNum v) (not (= (n v) nZero))
-  (ite (is_VString v) (not (= (s v) |str:|))
-  (VErrToBool (e v))
-))))))
-
 (define (primitive? (v jsVal)) (VBool true))
 (define (is-callable (v jsVal)) (VBool false))
 
-(define (int-to-num (i int)) (to_real (bv2int[Int] i)))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Conversions
+;;  x-to-y are of type x -> y
+;;    if x is prim, its type is jsVal
+;;  x->y are of type jsVal -> jsVal
+;;    if x is not prim, x is assuming to be is_Vx
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(declare-fun str-to-num (string) num)
+(define (int-to-bool (i int)) (not (= i iZero)))
+(define (num-to-bool (n num)) (not (or (= n nZero) (= n nNaN))))
+(define (str-to-bool (s string)) (not (= s |str:|)))
+(declare-fun err-to-bool (err) Bool)
+(define (prim-to-bool (v jsVal))
+  (and (not (is_VUndefined v)) (not (is_VNull v))
+  (ite (is_VBool v) (b v)
+  (ite (is_VInt v) (int-to-bool v)
+  (ite (is_VNum v) (num-to-bool v)
+  (ite (is_VString v) (str-to-bool v)
+  (err-to-bool v)
+))))))
+(define (int->bool (v jsVal)) (VBool (int-to-bool (i v))))
+(define (num->bool (v jsVal)) (VBool (num-to-bool (n v))))
+(define (str->bool (v jsVal)) (VBool (str-to-bool (s v))))
+(define (err->bool (v jsVal)) (VBool (err-to-bool (e v))))
+(define (prim->bool (v jsVal)) (VBool (prim-to-bool v)))
+(define (ValToBool (v jsVal))
+  (and (not (is_VUndefined v)) (not (is_VNull v))
+  (ite (is_VBool v) (b v)
+  (ite (is_VInt v) (int-to-bool (i v))
+  (ite (is_VNum v) (num-to-bool (n v))
+  (ite (is_VString v) (str-to-bool (s v))
+  (err-to-bool (e v))
+))))))
+
+
+(define (num-to-int (n number)) (int2bv[32] (real2int n)))
+(define (num->int32 (v jsVal)) (VInt (num-to-int (n v))))
+(define (number->int32 (v jsVal))
+  (ite (is_VInt v) v
+  (ite (is_VNum v) (num->int32 v)
+  ErrExpectedNum
+)))
+(define (to-int32 (v jsVal)) (number->int32 v))
+
+
+(define (bool-to-num (b Bool)) (ite b nOne nZero))
+(define (int-to-num (i int))
+  (ite (= i iZero) nZero
+  (ite (= i iOne) nOne
+  (to_real (bv2int[Int] i))
+)))
+(declare-fun uninterpreted-str-to-num (string) num)
+(define (str-to-num (s string))
+  (ite (or (= s |str:|) (= s |str:0|)) nZero
+  (ite (= s |str:1|) nOne
+  (uninterpreted-str-to-num s)
+)))
 (define (prim-to-num (v jsVal))
-  (ite (or (is_VNull v) (= (VBool false) v) (= (VInt bv0[32]) v) (= (VString |str:|) v) (= (VString |str:0|) v))
-    nZero
-  (ite (or (= (VBool true) v) (= (VInt bv1[32]) v) (= (VString |str:1|) v))
-    nOne
-  (ite (is_VNum v)
-    (n v)
-  (ite (is_VInt v)
-    (int-to-num (i v))
-  (ite (is_VString v)
-    (str-to-num (s v))
-  (ite (is_VUndefined v)
-    nNaN
+  (ite (is_VBool v) (bool-to-num (b v))
+  (ite (is_VInt v) (int-to-num (i v))
+  (ite (is_VNum v) (n v)
+  (ite (is_VString v) (str-to-num (s v))
+  (ite (is_VUndefined v) nNaN
+  (ite (is_VNull v) nZero
   nZero
 )))))))
+(define (bool->num (v jsVal)) (VNum (bool-to-num (b v))))
+(define (int->num (v jsVal)) (VNum (int-to-num (i v))))
+(define (str->num (v jsVal)) (VNum (str-to-num (s v))))
 (define (prim->num (v jsVal)) (VNum (prim-to-num v)))
 
+
+(define (bool-to-str (b Bool)) (ite b |str:true| |str:false|))
 (declare-fun uninterpreted-int-to-str (int) string)
 (define (int-to-str (i int))
-  (ite (= i iZero)
-    |str:0|
-  (ite (= i iOne)
-    |str:1|
+  (ite (= i iZero) |str:0|
+  (ite (= i iOne) |str:1|
   (uninterpreted-int-to-str i)
 )))
 (declare-fun uninterpreted-num-to-str (num) string)
 (define (num-to-str (n num))
-  (ite (= n nZero)
-    |str:0|
-  (ite (= n nOne)
-    |str:1|
-  (ite (= n nNaN)
-    |str:NaN|
-  (ite (= n nInfinity)
-    |str:Infinity|
+  (ite (= n nZero) |str:0|
+  (ite (= n nOne) |str:1|
+  (ite (= n nNaN) |str:NaN|
+  (ite (= n nInfinity) |str:Infinity|
   (uninterpreted-num-to-str n)
 )))))
 (define (prim-to-str (v jsVal))
-  (ite (is_VNull v)
-    |str:null|
-  (ite (is_VUndefined v)
-    |str:undefined|
-  (ite (is_VBool v)
-    (ite (b v) |str:true| |str:false|)
-  (ite (is_VInt v)
-    (int-to-str (i v))
-  (ite (is_VNum v)
-    (num-to-str (n v))
-  (ite (is_VString v)
-    (s v)
+  (ite (is_VNull v) |str:null|
+  (ite (is_VUndefined v) |str:undefined|
+  (ite (is_VBool v) (bool-to-str (b v))
+  (ite (is_VInt v) (int-to-str (i v))
+  (ite (is_VNum v) (num-to-str (n v))
+  (ite (is_VString v) (s v)
   str-ERROR
 )))))))
+(define (bool->str (v jsVal)) (VString (bool-to-str (b v))))
+(define (int->str (v jsVal)) (VString (int-to-str (i v))))
+(define (num->str (v jsVal)) (VString (num-to-str (n v))))
 (define (prim->str (v jsVal)) (VString (prim-to-str v)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (js+ (n1 jsVal) (n2 jsVal))
   (ite (and (is_VInt n1) (is_VInt n2))
