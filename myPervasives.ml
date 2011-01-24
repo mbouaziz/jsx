@@ -18,6 +18,9 @@ module List =
 struct
   include List
 
+  let assoc_opt x l = try Some (assoc x l) with
+  | Not_found -> None
+
   let rec filter_map f = function
     | [] -> []
     | h::t -> match f h with
@@ -218,6 +221,22 @@ struct
 	| Some x -> Some x
 	| None -> aux (i+1)
       in aux 0
+end
+
+module Fresh :
+sig
+  val fresh : unit -> int
+  type state
+  (* Should be used with marshalling *)
+  val save_state : unit -> state
+  val load_state : state -> unit
+end =
+struct
+  type state = int
+  let last = ref 0
+  let fresh () = incr last; !last
+  let save_state () = !last
+  let load_state x = last := x
 end
 
 module StringMap = Map.Make(String)

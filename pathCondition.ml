@@ -37,7 +37,10 @@ struct
 
   module F = (* functions *)
   struct
-    let z = env_find ~kind:"functions" env.funs
+    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>="]
+    let c x = match StringMap.find_opt x conv with
+    | Some x -> x | None -> x
+    let z = c @> env_find ~kind:"functions" env.funs
 
     let vUndefined = z "VUndefined"
     let vNull = z "VNull"
@@ -59,6 +62,10 @@ struct
     let valToBool = z "ValToBool"
     let is_callable = z "is-callable"
     let is_primitive = z "primitive?"
+    let int_to_bool = z "int->bool"
+    let num_to_bool = z "num->bool"
+    let str_to_bool = z "str->bool"
+    let prim_to_bool = z "prim->bool"
     let prim_to_num = z "prim->num"
     let prim_to_str = z "prim->str"
     let surface_typeof = z "surface-typeof"
@@ -272,7 +279,8 @@ sig
     val symb : ('t, 's) SymbolicValue._ssymb -> ('t, 's) SymbolicValue._svalue
   end
 
-  val check_sat : ('t, 's) pathcomponent list -> lbool * SMT.model
+  val check_sat : ('t, 's) pathcomponent list -> lbool
+  val check_sat_model : ('t, 's) pathcomponent list -> lbool * SMT.model
 end =
 struct
   module ToSMT =
@@ -326,23 +334,27 @@ struct
       | CString s -> SMT.mk_appf F.vString [| StrRepr.mk s |]
       | CRegexp _ -> assert false
 
-    let of_op1 op x = match op with
-    | "is-callable" -> SMT.mk_appf F.is_callable [| x |]
-    | "primitive?" -> SMT.mk_appf F.is_primitive [| x |]
-    | "prim->num" -> SMT.mk_appf F.prim_to_num [| x |]
-    | "prim->str" -> SMT.mk_appf F.prim_to_str [| x |]
-    | "surface-typeof" -> SMT.mk_appf F.surface_typeof [| x |]
-    | "typeof" -> SMT.mk_appf F.typeof [| x |]
-    | _ -> failwith (sprintf "No SMT implementation for unary operator \"%s\"" op)
+    let of_op1 op x =
+      SMT.mk_appf (F.z op) [| x |]
+ (* match op with *)
+    (* | "is-callable" -> SMT.mk_appf F.is_callable [| x |] *)
+    (* | "primitive?" -> SMT.mk_appf F.is_primitive [| x |] *)
+    (* | "prim->num" -> SMT.mk_appf F.prim_to_num [| x |] *)
+    (* | "prim->str" -> SMT.mk_appf F.prim_to_str [| x |] *)
+    (* | "surface-typeof" -> SMT.mk_appf F.surface_typeof [| x |] *)
+    (* | "typeof" -> SMT.mk_appf F.typeof [| x |] *)
+    (* | _ -> failwith (sprintf "No SMT implementation for unary operator \"%s\"" op) *)
 
-    let of_op2 op x y = match op with
-    | "abs=" -> SMT.mk_appf F.abs_eq [| x ; y |]
-    | "stx=" -> SMT.mk_appf F.stx_eq [| x ; y |]
-    | "string+" -> SMT.mk_appf F.string_plus [| x ; y |]
-    | "+" -> SMT.mk_appf F.add [| x ; y |]
-    | "-" -> SMT.mk_appf F.sub [| x ; y |]
-    | "get-field" -> SMT.mk_appf F.get_field [| x ; y |]
-    | _ -> failwith (sprintf "No SMT implementation for binary operator \"%s\"" op)
+    let of_op2 op x y =
+      SMT.mk_appf (F.z op) [| x ; y |]
+ (* match op with *)
+    (* | "abs=" -> SMT.mk_appf F.abs_eq [| x ; y |] *)
+    (* | "stx=" -> SMT.mk_appf F.stx_eq [| x ; y |] *)
+    (* | "string+" -> SMT.mk_appf F.string_plus [| x ; y |] *)
+    (* | "+" -> SMT.mk_appf F.add [| x ; y |] *)
+    (* | "-" -> SMT.mk_appf F.sub [| x ; y |] *)
+    (* | "get-field" -> SMT.mk_appf F.get_field [| x ; y |] *)
+    (* | _ -> failwith (sprintf "No SMT implementation for binary operator \"%s\"" op) *)
 
     let of_op3 op x y z = match op with
     | _ -> failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
@@ -412,6 +424,13 @@ struct
   let assert_pathcomponent { pred ; _ } = assert_predicate pred
 
   let check_sat pcl =
+    SMT.Cmd.push ();
+    List.iter assert_pathcomponent pcl;
+    let res = SMT.Cmd.check () in
+    SMT.Cmd.pop ();
+    res
+
+  let check_sat_model pcl =
     SMT.Cmd.push ();
     List.iter assert_pathcomponent pcl;
     let res, m = SMT.Cmd.check_and_get_model () in
@@ -499,11 +518,14 @@ struct
 	  let pcl = { pred = p; is_assumption = assumption }::pc.big_and in
 	  if !Options.opt_smt then begin
 	    (* use the SMT solver to check the satisfiability *)
-	    let sat, model = VC.check_sat pcl in
-	    if sat = L_FALSE then
-	      None
+	    if !Options.opt_model then
+	      let sat, model = VC.check_sat_model pcl in
+	      if sat = L_FALSE then None
+	      else Some { big_and = pcl; sat; smt = true; model = Some model }
 	    else
-	      Some { big_and = pcl; sat; smt = true; model = Some model }
+	      let sat = VC.check_sat pcl in
+	      if sat = L_FALSE then None
+	      else Some { big_and = pcl; sat; smt = true; model = None }
 	  end else
 	    Some { big_and = pcl; sat = L_UNDEF; smt = false; model = None }
 
@@ -539,7 +561,7 @@ struct
   | [] -> ""
   | pcl -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:true ~string_of_svalue s) pcl)
 
-  let no_model ~smt = sprintf "NO MODEL (SMT solver %sused)" (if smt then "" else "un")
+  let no_model ~smt = sprintf "NO MODEL (SMT solver %sabled, models %sabled)" (if smt then "en" else "dis") (if !Options.opt_model then "en" else "dis")
 
   let model { model; smt; _ } = match model with
   | None -> no_model ~smt

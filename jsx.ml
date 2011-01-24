@@ -35,79 +35,162 @@ struct
   let from_inputs input_list =
     LambdaJS.Syntax.( { p = LambdaJS.Prelude.dummy_pos ; e = EConst JS.Syntax.CUndefined } )
     |> List.fold_right from_input input_list
-
 end
+
+
+let interactive_loop def opts =
+  Sys.catch_break false;
+  let prompt =
+    opts
+    |> List.map (fun (k, (t, _)) -> if k = def then t ^ "(default)" else t)
+    |> String.concat "/"
+    |> sprintf "%s ? "
+  in
+  let rec loop () =
+    print_string prompt;
+    flush stdout;
+    let ans = String.lowercase (read_line ()) in
+    let ans = if ans = "" then def else ans in
+    match List.assoc_opt ans opts with
+    | None -> loop ()
+    | Some (_, a) -> if a () then loop ()
+  in
+  loop ();
+  if not !Options.opt_interactive then
+    Sys.catch_break true
 
 
 let main () =
   Options.arg_parse ();
   Printexc.record_backtrace !Options.opt_backtrace;
-  if !Options.inputs = [] then
-    Options.error_usage "No input";
-  if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
-    warning "Desugaring without environment";
-  let raw_ljs = Parsers.from_inputs (!Options.inputs) in
-  let fine_ljs = LambdaJS.Desugar.desugar raw_ljs in
-  let raw_ljs = LambdaJS.Syntax.raw_of_fine fine_ljs in
-  if !Options.opt_pretty then begin
-    LambdaJS.Pretty.exp raw_ljs Prelude.Format.std_formatter;
-    print_newline ();
+  if !Options.OtherOptions.opt_load_set <> None then begin
+    if not !Options.opt_xeval then
+      Options.error_usage "Option -load-set cannot be used with -no-xeval";
+    if !Options.inputs <> [] then
+      Options.error_usage "Option -load-set cannot be used with other input files";
+    if !Options.opt_pretty then
+      Options.error_usage "Option -load-set cannot be used with -pretty";
+    if !Options.opt_features then
+      Options.error_usage "Option -load-set cannot be used with -features";
+    if !Options.opt_eval then
+      Options.error_usage "Option -load-set cannot be used with -eval";
   end;
-  if !Options.opt_features then begin
-    let m = FeaturesList.of_exp raw_ljs in
-    print_endline (FeaturesList.Pretty.string_of_map ~sort_max:true m);
+  if !Options.OtherOptions.opt_save_set <> None then begin
+    if not !Options.opt_xeval then
+      Options.error_usage "Option -save-set cannot be used with -no-xeval";
+    if not !Options.opt_symbols then
+      Options.error_usage "Option -save-set cannot be used with -no-symb";
+    (* Because a model contains an abstract type which cannot be marshalled *)
+    Options.opt_model := false;
   end;
-  if !Options.opt_eval then begin
-    let _ = LambdaJS.Eval.eval_expr fine_ljs in
-    print_newline ();
-  end;
+  let get_fine_ljs () =
+    if !Options.inputs = [] then
+      Options.error_usage "No input";
+    if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
+      warning "Desugaring without environment";
+    let raw_ljs = Parsers.from_inputs (!Options.inputs) in
+    let fine_ljs = LambdaJS.Desugar.desugar raw_ljs in
+    let raw_ljs = LambdaJS.Syntax.raw_of_fine fine_ljs in
+    if !Options.opt_pretty then begin
+      LambdaJS.Pretty.exp raw_ljs Prelude.Format.std_formatter;
+      print_newline ();
+    end;
+    if !Options.opt_features then begin
+      let m = FeaturesList.of_exp raw_ljs in
+      print_endline (FeaturesList.Pretty.string_of_map ~sort_max:true m);
+    end;
+    if !Options.opt_eval then begin
+      let _ = LambdaJS.Eval.eval_expr fine_ljs in
+      print_newline ();
+    end;
+    fine_ljs
+  in
   if !Options.opt_xeval then begin
-    let set = XEval.xeval fine_ljs SymbolicState.SState.first in
-    if !Options.opt_symbols then
-      let print_state () s =
+    let set_opt =
+      (* idea: an option to chain xeval + load-set *)
+      match !Options.OtherOptions.opt_load_set with
+      | None ->
+	  let fine_ljs = get_fine_ljs () in
+	  Some (XEval.xeval fine_ljs SymbolicState.SState.first)
+      | Some (_, ich) ->
+	  let set_opt = SymbolicState.SState.marshal_in ich in
+	  close_in ich;
+	  set_opt
+    in
+    if !Options.opt_symbols then begin
+      let of_a_set set =
+	let s = SymbolicState.SState.get_first set in
+	let get_next_opt = SymbolicState.SState.get_next set in
+
 	print_endline (SymbolicState.ToString.state s);
 	print_endline "";
+
 	if !Options.opt_interactive then begin
-	  let rec read_interaction () =
-	    print_string "[N]ext(default)/[A]ll/[M]odel/[S]hort model/Reprint [P]ath/[Q]uit ? ";
-	    flush stdout;
-	    let ans = String.lowercase (read_line ()) in
-	    if ans = "" || ans = "n" then
-	      ()
-	    else if ans = "a" then begin
-	      Options.opt_interactive := false;
-	      ()
-	    end else if ans = "m" then begin
-	      print_endline (SymbolicState.ToString.model s);
-	      read_interaction ()
-	    end else if ans = "s" then begin
-	      print_endline (SymbolicState.ToString.short_model s);
-	      read_interaction ()
-	    end else if ans = "p" then begin
-	      print_endline (SymbolicState.ToString.state s);
-read_interaction ()
-	    end else if ans = "q" then
-	      exit 1
-	    else
-	      read_interaction ()
-	  in
-	  read_interaction ();
+	  let do_all () = Options.opt_interactive := false; false in
+	  let do_model () = print_endline (SymbolicState.ToString.model s); true in
+	  let do_short_model () = print_endline (SymbolicState.ToString.short_model s); true in
+	  let do_print_path () = print_endline (SymbolicState.ToString.state s); true in
+	  let do_quit () = exit 1 in
+	  let do_next () = false in
+	  let opts = [
+	    "p", ("Reprint [P]ath", do_print_path);
+	    "q", ("[Q]uit", do_quit);
+	  ] in
+	  let opts =
+	    if !Options.opt_model then ("m", ("[M]odel", do_model))::("s", ("[S]hort model", do_short_model))::opts
+	    else opts in
+	  let def, opts =
+	    if get_next_opt = None then "q", opts
+	    else "n", ("n", ("[N]ext", do_next))::("a", ("[A]ll", do_all))::opts in
+	  interactive_loop def opts
 	end;
+
+	match get_next_opt with
+	| None -> None
+	| Some f -> Some (f ())
       in
-      SymbolicState.SState.fold print_state () set
-    else if SymbolicState.SState.is_empty set then
-      failwith "No state"
-    else match SymbolicState.SState.get_singleton set with
-    | None -> failwith "Several states"
-    | Some s -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
-      print_endline io;
-      begin match exn_opt with
+      let continue = match !Options.OtherOptions.opt_nb_paths with
+      | None -> ref true
+      | Some nb_paths -> ref (nb_paths > 0)
+      in
+      let cur_set_opt = ref set_opt in
+      let cur_path = ref 0 in
+      if not !Options.opt_interactive then
+	Sys.catch_break true;
+      while !continue do
+	match !cur_set_opt with
+	| None -> continue := false
+	| Some set ->
+	    try
+	      cur_set_opt := of_a_set set;
+	      incr cur_path;
+	      match !Options.OtherOptions.opt_nb_paths with
+	      | Some nb_paths when !cur_path >= nb_paths -> continue := false
+	      | _ -> ()
+	    with
+	      Sys.Break -> Options.opt_interactive := true
+      done;
+      Sys.catch_break false;
+      begin match !Options.OtherOptions.opt_save_set with
       | None -> ()
-      | Some exn ->
-	  print_endline exn;
-	  if !Options.opt_fatal then
-	    exit 1
-      end
+      | Some (_, och) ->
+	  SymbolicState.SState.marshal_out och !cur_set_opt;
+	  close_out och
+      end;
+    end else match set_opt with
+    | None -> failwith "No state"
+    | Some set ->
+	match SymbolicState.SState.get_singleton set with
+	| None -> failwith "Several states"
+	| Some s -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
+	  print_endline io;
+	  begin match exn_opt with
+	  | None -> ()
+	  | Some exn ->
+	      print_endline exn;
+	      if !Options.opt_fatal then
+		exit 1
+	  end
   end
 
 let _ = run_under_backtrace main Options.check_print_backtrace

@@ -52,6 +52,9 @@ sig
   type envlabel
   type env
 
+  val marshal_in : in_channel -> set option
+  val marshal_out : out_channel -> set option -> unit
+
   module ToString :
   sig
     val svalue : ?deep:bool -> ?brackets:bool -> ?simplify:bool -> 'a t -> svalue -> string
@@ -64,14 +67,15 @@ sig
 
   val first : unit t
 
-  val is_empty : set -> bool
+  (* val is_empty : set -> bool *)
   val get_singleton : 'a _set -> 'a t option
   val singleton : 'a t -> 'a _set
   val map_unit : (s -> s) -> set -> set
   val map : ('a t -> 'b _set) -> 'a _set -> 'b _set
   val map_res : ('a -> 'a t -> 'b _set) -> 'a _set -> 'b _set
   val map_res_unit : ('a -> 'a t -> 'b t) -> 'a _set -> 'b _set
-  val fold : ('a -> s -> 'a) -> 'a -> set -> 'a
+  val get_first : set -> s
+  val get_next : set -> (unit -> set) option
     (* should be called only once for a lazy set *)
 
   val res : 'a -> 'b t -> 'a t
@@ -170,6 +174,14 @@ struct
   type s = srvalue t
   type 'a _set = 'a t __set
   type set = s __set
+
+  let marshal_in ich =
+    let set_opt, fresh_state = Marshal.from_channel ich in
+    Fresh.load_state fresh_state;
+    set_opt
+  let marshal_out och set_opt =
+    let fresh_state = Fresh.save_state () in
+    Marshal.to_channel och (set_opt, fresh_state) [Marshal.Closures]
 
   module ToString = (* output a string *)
   struct
@@ -412,11 +424,9 @@ struct
       | Some g2 -> seq_def g2 n1
   end
 
-  (* let empty = [] *)
-
   let first = { pc = PathCondition.PC.pc_true; env = IdMmap.empty; env_stack = []; envvals = EnvVals.empty; heap = SHeap.empty; res = (); exn = None; out = SOutput.empty; callstack = [] }
 
-  let is_empty set = false
+  (* let is_empty set = false *)
 
   let get_singleton = function
     | x, None -> Some x
@@ -428,11 +438,9 @@ struct
   let rec map f (s, n) = let s, n' = f s in s, Next.seq n' (Next.map (map f) n)
   let map_res f = let f' s = f s.res s in map f'
   let map_res_unit f = let f' s = f s.res s in map_unit f'
-  let rec fold f acc (s, n) =
-    let acc = f acc s in
-    match n with
-    | None -> acc
-    | Some g -> fold f acc (g ())
+
+  let get_first (s, _) = s
+  let get_next (_, n) = n
 
   let res res s = { s with res }
   let res_v v s = singleton { s with res = SValue v }

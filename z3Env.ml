@@ -24,9 +24,9 @@ let empty_env ctx = {
 
 let env_filename = "env.smt2"
 
-let _log lazy_v =
-  if !Options.OtherOptions.opt_smt_log then
-    output_string !Options.OtherOptions.och_smt_log (Lazy.force lazy_v)
+let _log lazy_v = match !Options.OtherOptions.opt_smt_log with
+| None -> ()
+| Some (_, och) -> output_string och (Lazy.force lazy_v)
 
 module Helpers =
 struct

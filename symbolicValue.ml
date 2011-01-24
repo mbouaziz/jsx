@@ -13,9 +13,7 @@ struct
 
   let compare = Pervasives.compare
 
-  let fresh =
-    let last = ref 0 in
-    fun () -> incr last; !last
+  let fresh = Fresh.fresh
 
   let to_string l = sprintf "l%03d" l
 end
