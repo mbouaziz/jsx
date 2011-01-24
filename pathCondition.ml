@@ -276,7 +276,7 @@ sig
   end
   module Simplify :
   sig
-    val symb : ('t, 's) SymbolicValue._ssymb -> ('t, 's) SymbolicValue._svalue
+    val svalue : ('t, 's) SymbolicValue._svalue -> ('t, 's) SymbolicValue._svalue
   end
 
   val check_sat : ('t, 's) pathcomponent list -> lbool
@@ -367,26 +367,26 @@ struct
     let sid_num_var sid = SMT.mk_var (Symbols.num sid) NumRepr.sort
     let sid_str_var sid = SMT.mk_var (Symbols.str sid) StrRepr.sort
 
-    let rec of_symb = function
-      | SId (sid, SymbAny) -> sid_var sid
-      | SId (sid, SymbBool) -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
-      | SId (sid, SymbInt) -> SMT.mk_appf F.vInt [| sid_int_var sid |]
-      | SId (sid, SymbNum) -> SMT.mk_appf F.vNum [| sid_num_var sid |]
-      | SId (sid, SymbStr) -> SMT.mk_appf F.vString [| sid_str_var sid |]
-      | SOp1 (o, x) -> of_op1 o (of_svalue x)
-      | SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
-      | SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)
-      | SApp (v, l) -> of_app (of_svalue v) (List.map of_svalue l)
+    let rec of_typed_symb = function
+      | TAny, SId sid -> sid_var sid
+      | TBool, SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
+      | TInt, SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
+      | TNum, SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
+      | TStr, SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
+      | _, SOp1 (o, x) -> of_op1 o (of_svalue x)
+      | _, SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
+      | _, SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)
+      | _, SApp (v, l) -> of_app (of_svalue v) (List.map of_svalue l)
     and of_svalue = function
       | SConst c -> of_const c
       | SClosure _ -> assert false (* really shouldn't happen *)
       | SHeapLabel _ -> assert false (* NYI, don't know what to do now *)
-      | SSymb s -> of_symb s
+      | SSymb ts -> of_typed_symb ts
 
     let mk_to_bool x = SMT.mk_appf F.valToBool [| x |]
 
     let of_bool_svalue = function
-      | SSymb (SId (sid, SymbBool)) -> sid_bool_var sid
+      | SSymb (TBool, SId sid) -> sid_bool_var sid
       | v -> mk_to_bool (of_svalue v)
 
     let of_predicate = function
@@ -400,18 +400,18 @@ struct
     open ToSMT.Symbols
 
     let rec of_svalue v m = match v with
-    | SSymb s -> of_symb s m
+    | SSymb ts -> of_typed_symb ts m
     | _ -> m
-    and of_symb s m = match s with
-    | SId (sid, SymbAny) -> StringMap.add (SId.to_string sid) (any sid) m
-    | SId (sid, SymbBool) -> StringMap.add (SId.to_string sid) (bool sid) m
-    | SId (sid, SymbInt) -> StringMap.add (SId.to_string sid) (int sid) m
-    | SId (sid, SymbNum) -> StringMap.add (SId.to_string sid) (num sid) m
-    | SId (sid, SymbStr) -> StringMap.add (SId.to_string sid) (str sid) m
-    | SOp1 (_, v) -> of_svalue v m
-    | SOp2 (_, v1, v2) -> m |> of_svalue v1 |> of_svalue v2
-    | SOp3 (_, v1, v2, v3) -> m |> of_svalue v1 |> of_svalue v2 |> of_svalue v3
-    | SApp (v, l) -> m |> of_svalue v |> List.fold_leftr of_svalue l
+    and of_typed_symb ts m = match ts with
+    | TAny, SId sid -> StringMap.add (SId.to_string sid) (any sid) m
+    | TBool, SId sid -> StringMap.add (SId.to_string sid) (bool sid) m
+    | TInt, SId sid -> StringMap.add (SId.to_string sid) (int sid) m
+    | TNum, SId sid -> StringMap.add (SId.to_string sid) (num sid) m
+    | TStr, SId sid -> StringMap.add (SId.to_string sid) (str sid) m
+    | _, SOp1 (_, v) -> of_svalue v m
+    | _, SOp2 (_, v1, v2) -> m |> of_svalue v1 |> of_svalue v2
+    | _, SOp3 (_, v1, v2, v3) -> m |> of_svalue v1 |> of_svalue v2 |> of_svalue v3
+    | _, SApp (v, l) -> m |> of_svalue v |> List.fold_leftr of_svalue l
 
     let of_pathcomponent m { pred ; _ } = match pred with
     | PredVal v | PredNotVal v -> of_svalue v m
@@ -441,7 +441,8 @@ struct
   struct
     open SymbolicValue
 
-    let symb symb =
+    let svalue = function
+      (* | SSymb (typ, symb) -> *)
       (* SMT.Cmd.push (); *)
       (* let sid = SId.from_string "_simplify_" in *)
       (* SMT.Cmd.assert_cnstr (SMT.mk_eq (ToSMT.sid_var sid) (ToSMT.of_svalue (SSymb symb))); *)
@@ -454,9 +455,10 @@ struct
       (* 	| None -> SSymb symb *)
       (* 	| Some ast -> try SMT.to_svalue ast with _ -> SSymb symb *)
       (* else *)
-	SSymb symb
+	(* SSymb symb *)
       (* try symb |> ToSMT.of_symb |> SMT.simplify |> SMT.to_svalue with *)
       (* 	_ -> SSymb symb *)
+      | v -> v
   end
 
 end

@@ -30,7 +30,7 @@ struct
   let to_string t = sprintf "@%s" t
 end
 
-type sid_attr = SymbAny | SymbBool | SymbInt | SymbNum | SymbStr
+type ssymb_type = TAny | TBool | TInt | TNum | TStr
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
@@ -39,9 +39,9 @@ type ('t, 's) _svalue = (* 't is a state, 's is a state set *)
   | SConst of sconst
   | SClosure of (('t, 's) _svalue list -> 't -> 's)
   | SHeapLabel of sheaplabel
-  | SSymb of ('t, 's) _ssymb
+  | SSymb of (ssymb_type * ('t, 's) _ssymb)
 and ('t, 's) _ssymb =
-  | SId of sid * sid_attr
+  | SId of sid
   | SOp1 of string * ('t, 's) _svalue
   | SOp2 of string * ('t, 's) _svalue * ('t, 's) _svalue
   | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
@@ -61,9 +61,9 @@ struct
   let int i = SConst (CInt i)
   let num f = SConst (CNum f)
   let str x = SConst (CString x)
-  let sop1 o v = SSymb (SOp1(o, v))
-  let sop2 o v1 v2 = SSymb (SOp2(o, v1, v2))
-  let sop3 o v1 v2 v3 = SSymb (SOp3(o, v1, v2, v3))
-  let sapp v vl = SSymb (SApp(v, vl))
-  let sid id k = SSymb (SId (id, k))
+  let sop1 ?(typ=TAny) o v = SSymb (typ, SOp1(o, v))
+  let sop2 ?(typ=TAny) o v1 v2 = SSymb (typ, SOp2(o, v1, v2))
+  let sop3 ?(typ=TAny) o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
+  let sapp ?(typ=TAny) v vl = SSymb (typ, SApp(v, vl))
+  let sid ~typ id = SSymb (typ, SId id)
 end

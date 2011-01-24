@@ -89,9 +89,9 @@ sig
   val res_str : string -> 'a t -> set
   val res_heap_add : sheaplabel -> svalue sobj -> 'a t -> set
   val res_heap_add_fresh : svalue sobj -> 'a t -> set
-  val res_id : sid -> SymbolicValue.sid_attr -> 'a t -> set
-  val res_op1 : string -> svalue -> 'a t -> set
-  val res_op2 : string -> svalue -> svalue -> 'a t -> set
+  val res_id : sid -> SymbolicValue.ssymb_type -> 'a t -> set
+  val res_op1 : ?typ:SymbolicValue.ssymb_type -> string -> svalue -> 'a t -> set
+  val res_op2 : ?typ:SymbolicValue.ssymb_type -> string -> svalue -> svalue -> 'a t -> set
 
   val exn : svalue sexn -> 'a t -> s
   val clean_exn : 'a t -> unit t
@@ -201,7 +201,7 @@ struct
       | SConst _ -> labs
       | SHeapLabel l -> labs |> LabelSet.add l |> aux_obj (SHeap.find l heap)
       | SClosure _ -> labs
-      | SSymb symb -> match symb with
+      | SSymb (_, symb) -> match symb with
 	| SId _ -> labs
 	| SOp1(_, v) -> labs |> aux v
 	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
@@ -220,11 +220,11 @@ struct
 	| SClosure _ -> "function"
 	| SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj ~simplify s (SHeap.find hl s.heap)))
 	| SHeapLabel hl -> sprintf "heap[%s]" (HeapLabel.to_string hl)
-	| SSymb symb ->
+	| SSymb (_, symb) as v ->
 	    if simplify && !Options.opt_smt then
-	      svalue ~deep ~brackets ~simplify:false s (PathCondition.VC.Simplify.symb symb)
+	      svalue ~deep ~brackets ~simplify:false s (PathCondition.VC.Simplify.svalue v)
 	    else match symb with
-	    | SId (id, attr) -> SId.to_string id
+	    | SId id -> SId.to_string id
 	    | SOp1 (o, v) ->
 		if Char.is_alpha o.[0] then
 		  sprintf "%s(%s)" o (svalue ~simplify s v)
@@ -453,9 +453,9 @@ struct
   let res_str x s = res_v (Mk.str x) s
   let res_heap_add l obj s = res_v (SHeapLabel l) (Heap.add l obj s)
   let res_heap_add_fresh obj s = res_heap_add (HeapLabel.fresh ()) obj s
-  let res_id id k s = res_v (Mk.sid id k) s
-  let res_op1 o v s = res_v (Mk.sop1 o v) s
-  let res_op2 o v1 v2 s = res_v (Mk.sop2 o v1 v2) s
+  let res_id id typ s = res_v (Mk.sid ~typ id) s
+  let res_op1 ?(typ=SymbolicValue.TAny) o v s = res_v (Mk.sop1 ~typ o v) s
+  let res_op2 ?(typ=SymbolicValue.TAny) o v1 v2 s = res_v (Mk.sop2 ~typ o v1 v2) s
 
   let exn e s = { s with exn = Some e ; res = SExn e }
   let clean_exn s = { s with exn = None ; res = () }
