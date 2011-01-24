@@ -1,10 +1,10 @@
 /*
-This example demonstrates a case in which depth-first search can
-give partial results whereas breadth-first would take too much
-time to give any result (and memory usage would be too large)
+  This example demonstrates a case in which depth-first search can
+  give partial results whereas breadth-first would take too much
+  time to give any result (and memory usage would be too large)
  */
 
-var M = 8;
+var M = 20;
 var b = [], v = [];
 
 for (var i = 0 ; i < M ; i++)

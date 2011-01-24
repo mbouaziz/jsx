@@ -1,5 +1,6 @@
 /*
   With SMT enabled, only one case can happen in each path
+  And cow will never happen!
  */
 x = symbol("x");
 s = typeof(x);
