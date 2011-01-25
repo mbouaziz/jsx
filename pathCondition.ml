@@ -37,7 +37,7 @@ struct
 
   module F = (* functions *)
   struct
-    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>="]
+    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>=";"bool!","bool_neg"]
     let c x = match StringMap.find_opt x conv with
     | Some x -> x | None -> x
     let z = c @> env_find ~kind:"functions" env.funs

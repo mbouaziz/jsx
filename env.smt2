@@ -47,6 +47,16 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Misc
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (bool_neg-bool->bool (b Bool)) (not b))
+(define (bool_neg (v jsVal))
+  (ite (is_VBool v) (VBool (bool_neg-bool->bool (b v)))
+  (VErr ErrExpectedBool)
+))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Conversions
 ;;  x-to-y are of type x -> y
 ;;    if x is prim, its type is jsVal
@@ -274,6 +284,8 @@
   (ite (and (is_VNum v1) (is_VInt v2)) (VBool (>= (n v1) (int-to-num (i v2))))
   (VErr ErrExpectedNum)
 )))))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Types
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

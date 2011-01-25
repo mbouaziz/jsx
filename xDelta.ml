@@ -34,6 +34,12 @@ let const_typeof ~fname ~pos c s = match c with
 
 (* Unary operators *)
 
+let bool_neg ~pos v s = match v with
+| SConst (CBool b) -> SState.res_bool (not b) s
+| SSymb (TBool, _)
+| SSymb (TAny, _) -> SState.res_op1 "bool!" v s
+| _ -> SState.throw_str ~pos s "bool!"
+
 let eval ~pos v s = match v with
 | SConst (CString x) ->
     begin match SState.CallStack.top s with
@@ -337,6 +343,7 @@ let op1 ~pos op v s =
   let f = match op with
   | "assert" -> SState.PathCondition._assert
   | "assume" -> SState.PathCondition.assume
+  | "bool!" -> bool_neg
   | "eval" -> eval
   | "fail?" -> fail
   | "get-proto" -> get_proto
