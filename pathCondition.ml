@@ -261,7 +261,8 @@ end
 type 'a _predicate =
   | PredVal of 'a
   | PredNotVal of 'a
-type 'a _pathcomponent = { pred : 'a _predicate ; is_assumption : bool }
+type pred_kind = PPath | PAssume | PAssert
+type 'a _pathcomponent = { pred : 'a _predicate ; pred_kind : pred_kind }
 type 'a _pathcondition = { big_and : 'a _pathcomponent list ; sat : lbool ; smt : bool ; model : SMT.model option }
 
 type ('t, 's) predicate = ('t, 's) SymbolicValue._svalue _predicate
@@ -507,31 +508,62 @@ struct
   | PredVal v -> reduce_val v pcl
   | PredNotVal v -> reduce_val v pcl |> not_opt
 
-  let add ?(assumption=false) p pc =
+  let simplify_add p pc =
     match reduce p pc.big_and with
-    | Some true -> Some pc
-    | Some false -> None
+    | Some true -> Some (Some pc)
+    | Some false -> Some None
     | None ->
 	if mem_pred p pc.big_and then (* redundant *)
-	  Some pc
+	  Some (Some pc)
 	else if mem_pred (opp p) pc.big_and then (* we already have the opposite! *)
-	  None
+	  Some None
 	else
-	  let pcl = { pred = p; is_assumption = assumption }::pc.big_and in
-	  if !Options.opt_smt then begin
-	    (* use the SMT solver to check the satisfiability *)
-	    if !Options.opt_model then
-	      let sat, model = VC.check_sat_model pcl in
-	      if sat = L_FALSE then None
-	      else Some { big_and = pcl; sat; smt = true; model = Some model }
-	    else
-	      let sat = VC.check_sat pcl in
-	      if sat = L_FALSE then None
-	      else Some { big_and = pcl; sat; smt = true; model = None }
-	  end else
-	    Some { big_and = pcl; sat = L_UNDEF; smt = false; model = None }
+	  None
 
-  let add_assumption v pc = add ~assumption:true (PredVal v) pc
+  let check_sat_model_opt pcl =
+    if !Options.opt_model then let sat, model = VC.check_sat_model pcl in sat, Some model
+    else let sat = VC.check_sat pcl in sat, None
+
+  let add ?(pred_kind=PPath) p pc =
+    match simplify_add p pc with
+    | Some pc_opt -> pc_opt
+    | None ->
+	let pcl = { pred = p; pred_kind }::pc.big_and in
+	if !Options.opt_smt then begin
+	  (* use the SMT solver to check the satisfiability *)
+	  let sat, model_opt = check_sat_model_opt pcl in
+	  if sat = L_FALSE then None
+	  else Some { big_and = pcl; sat; smt = true; model = model_opt }
+	end else
+	  Some { big_and = pcl; sat = L_UNDEF; smt = false; model = None }
+
+  let add_assumption v pc = add ~pred_kind:PAssume (PredVal v) pc
+
+  (* add_assertion returns
+     None if the assertion is surely false
+     Some (L_FALSE, pc) if the assertion is surely true (pc unchanged)
+     Some (L_UNDEF, pc) if the assertion cannot be checked (assumption added to pc)
+     Some (L_TRUE, pc) if the assertion can be true (assumption added to pc)
+  *)
+  let add_assertion v pc =
+    match simplify_add (PredVal v) pc with
+    | Some None -> None
+    | Some (Some pc) -> Some (L_FALSE, pc)
+    | None ->
+	if !Options.opt_smt then begin
+	  (* use the SMT solver to check the validity *)
+	  let pcl_neg = { pred = PredNotVal v; pred_kind = PAssert }::pc.big_and in
+	  let unsat = VC.check_sat pcl_neg in
+	  if unsat = L_FALSE then
+	    Some (L_FALSE, pc)
+	  else
+	    let pcl = { pred = PredVal v; pred_kind = PAssert }::pc.big_and in
+	    let sat, model_opt = check_sat_model_opt pcl in
+	    if sat = L_FALSE then None
+	    else Some (unsat, { big_and = pcl; sat; smt = true; model = model_opt })
+	end else
+	  let pcl = { pred = PredVal v; pred_kind = PAssert }::pc.big_and in
+	  Some (L_UNDEF, { big_and = pcl; sat = L_UNDEF; smt = false; model = None })
 
   let branch v pc = add (PredVal v) pc, add (PredNotVal v) pc (* TODO: do better *)
 end
@@ -550,18 +582,19 @@ struct
     | PredVal v -> string_of_svalue ~brackets s v
     | PredNotVal v -> sprintf "Not(%s)" (string_of_svalue ~brackets:false s v)
 
-  let pathcomponent ~brackets ~assumptions ~string_of_svalue s = function
-    | { is_assumption = is_a ; pred } when is_a = assumptions -> Some (predicate ~brackets ~string_of_svalue s pred)
+  let pathcomponent ~brackets ~pred_kind ~string_of_svalue s = function
+    | { pred_kind = pk ; pred } when pk = pred_kind -> Some (predicate ~brackets ~string_of_svalue s pred)
     | _ -> None
 
-  let pathcondition ~string_of_svalue s { big_and ; _ } = match big_and with
-  | [] -> "True"
-  | pcl -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:false ~string_of_svalue s) pcl)
+  let generic_pc ~pred_kind opt ~string_of_svalue s { big_and ; _ } =
+    if !opt then
+      String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~pred_kind ~string_of_svalue s) big_and)
+    else
+      ""
 
-  let assumptions ~string_of_svalue s { big_and ; _ } = match big_and with
-  | _ when !Options.opt_assumptions = false -> ""
-  | [] -> ""
-  | pcl -> String.concat " /\\ " (List.rev_filter_map (pathcomponent ~brackets:true ~assumptions:true ~string_of_svalue s) pcl)
+  let pathcondition ~string_of_svalue s = generic_pc ~pred_kind:PPath Options.opt_pathcondition ~string_of_svalue s
+  let assumptions ~string_of_svalue s = generic_pc ~pred_kind:PAssume Options.opt_assumptions ~string_of_svalue s
+  let assertions ~string_of_svalue s = generic_pc ~pred_kind:PAssert Options.opt_assertions ~string_of_svalue s
 
   let no_model ~smt = sprintf "NO MODEL (SMT solver %sabled, models %sabled)" (if smt then "en" else "dis") (if !Options.opt_model then "en" else "dis")
 

@@ -17,12 +17,6 @@
   global["symbol_string" = function(s){
     return prim("symbol_string",s)
   }];
-//    let (x = prim("symbol",s))
-//    prim("assume",prim("primitive?",x));
-//    prim("assume",prim("stx=",prim("typeof",x),"bool"));
-//    x
-//  }];
-// TODO: cast content of assume to boolean
   global["assume" = function(e){
     return prim("assume",e)
   }];
@@ -32,9 +26,7 @@
   global["assume_callable" = function(e){
     return prim("assume",prim("is-callable",e))
   }];
-  global["assume_string" = function(e){
-    return
-    prim("assume",prim("primitive?",e));
-    prim("assume",prim("stx=",prim("typeof",e),"string"))
+  global["assert" = function(e){
+    return prim("assert",e)
   }]
 }

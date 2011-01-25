@@ -93,6 +93,8 @@ let opt_smt = ref true
 let opt_symbols = ref true
 let opt_xeval = ref true
 
+let opt_assertions = opt_assumptions
+let opt_pathcondition = ref true
 let opt_err_unbound_id_env = ref false
 
 

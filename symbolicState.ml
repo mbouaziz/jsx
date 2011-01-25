@@ -9,18 +9,33 @@ sig
   val empty : 'a t
   val to_string : ('a -> string) -> 'a t -> string
   val print : 'a -> 'a t -> 'a t
+  val warning: string -> 'a t -> 'a t
   val values : 'a t -> 'a list
 end =
 struct
-  type 'a t = 'a list
+  type 'a line =
+    | SAlpha of 'a
+    | SString of string
+
+  type 'a t = 'a line list
 
   let empty = []
 
-  let to_string alpha_to_string = List.rev_map alpha_to_string @> String.concat "\n"
+  let line_to_string alpha_to_string = function
+    | SAlpha a -> alpha_to_string a
+    | SString s -> s
 
-  let print x sout = x::sout
+  let to_string alpha_to_string = List.rev_map (line_to_string alpha_to_string) @> String.concat "\n"
 
-  let values sout = sout
+  let print x sout = (SAlpha x)::sout
+
+  let warning str sout = (SString str)::sout
+
+  let val_of_line = function
+    | SAlpha a -> Some a
+    | SString _ -> None
+
+  let values sout = List.filter_map val_of_line sout
 end
 
 type err = string
@@ -145,6 +160,7 @@ sig
   end
   module PathCondition :
   sig
+    val _assert : pos:pos -> svalue -> 'a t -> set
     val assume : pos:pos -> svalue -> 'a t -> set
     val branch : ('a t -> set) -> ('a t -> set) -> svalue -> 'a t -> set
   end
@@ -297,6 +313,7 @@ struct
 
     let pathcondition = PathCondition.ToString.pathcondition ~string_of_svalue
     let assumptions = PathCondition.ToString.assumptions ~string_of_svalue
+    let assertions = PathCondition.ToString.assertions ~string_of_svalue
 
     let env s env = ""
     let callstack s cs = ""
@@ -335,7 +352,7 @@ struct
       |> collect_labels s (callstack_values s.callstack)
       in
       let pc_label = sprintf "pc[%s]" (PathCondition.ToString.sat s.pc) in
-      ["assum", assumptions s s.pc; pc_label, pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "out", out s s.out]
+      ["assum", assumptions s s.pc; "assert", assertions s s.pc; pc_label, pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "out", out s s.out]
       |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			    Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
       |> String.concat "\n"
@@ -405,6 +422,9 @@ struct
   module Output =
   struct
     let print v s = { s with out = SOutput.print v s.out }
+    let warning ~pos msg s =
+      let str = sprintf "%s\n%s" (ToString.position_and_stack s pos s.callstack) msg in
+      { s with out = SOutput.warning str s.out }
   end
 
   module Next =
@@ -500,6 +520,17 @@ struct
       | Some pc_t, None -> f_t { s with pc = pc_t }
       | None, Some pc_e -> f_e { s with pc = pc_e }
       | None, None -> err ~pos:dummy_pos s "Path unsatisfiable"
+
+    let _assert ~pos v s =
+      match PC.add_assertion v s.pc with
+      | None -> err ~pos s "This assertion is surely false!"
+      | Some (L_FALSE, pc) -> res_true { s with pc }
+      | Some (L_TRUE, pc) ->
+	  let s = Output.warning ~pos "This assertion could be false" s in
+	  res_false { s with pc }
+      | Some (L_UNDEF, pc) ->
+	  let s = Output.warning ~pos "This assertion cannot be checked" s in
+	  res_false { s with pc }
 
     let assume ~pos v s =
       match PC.add_assumption v s.pc with

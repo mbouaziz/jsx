@@ -335,6 +335,7 @@ let err_op1 ~op ~pos _ s = SState.err ~pos s (sprintf "Error [xeval] No implemen
 
 let op1 ~pos op v s =
   let f = match op with
+  | "assert" -> SState.PathCondition._assert
   | "assume" -> SState.PathCondition.assume
   | "eval" -> eval
   | "fail?" -> fail
