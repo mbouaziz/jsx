@@ -136,7 +136,7 @@ sig
   end
   module Env :
   sig
-    val fresh_label : unit -> envlabel
+    val fresh_label : 'a t -> 'a t * envlabel
     val repl : id -> envlabel -> svalue -> 'a t -> 'a t
     val bind : id -> svalue -> 'a t -> 'a t
     val unbind : id -> 'a t -> 'a t
@@ -168,9 +168,9 @@ end =
 struct
 
   module LabelSet = Set.Make(HeapLabel)
-  module SHeap = Map.Make(HeapLabel)
+  module SHeap = LabMap.Make(HeapLabel)
   module EnvLabel = HeapLabel
-  module EnvVals = Map.Make(EnvLabel)
+  module EnvVals = LabMap.Make(EnvLabel)
   type 'a sheap = 'a sobj SHeap.t
   type 'a envvals = 'a EnvVals.t
   type envlabel = EnvLabel.t
@@ -191,13 +191,8 @@ struct
   type 'a _set = 'a t __set
   type set = s __set
 
-  let marshal_in ich =
-    let set_opt, fresh_state = Marshal.from_channel ich in
-    Fresh.load_state fresh_state;
-    set_opt
-  let marshal_out och set_opt =
-    let fresh_state = Fresh.save_state () in
-    Marshal.to_channel och (set_opt, fresh_state) [Marshal.Closures]
+  let marshal_in ich = Marshal.from_channel ich
+  let marshal_out och set_opt = Marshal.to_channel och set_opt [Marshal.Closures]
 
   module ToString = (* output a string *)
   struct
@@ -393,11 +388,14 @@ struct
 
   module Env =
   struct
-    let fresh_label = EnvLabel.fresh
+    let fresh_label s =
+      let envvals, envlab = EnvVals.fresh s.envvals in
+      { s with envvals }, envlab
+
     let repl id envlab v s = { s with env = IdMmap.replace_all id envlab s.env; envvals = EnvVals.add envlab v s.envvals }
     let bind id v s =
-      let envlab = fresh_label () in
-      { s with env = IdMmap.push id envlab s.env; envvals = EnvVals.add envlab v s.envvals }
+      let envvals, envlab = EnvVals.add_fresh v s.envvals in
+      { s with env = IdMmap.push id envlab s.env; envvals }
     let unbind id s = { s with env = IdMmap.pop id s.env } (* important: unbind x ; but envlab must not be unbind in envvals *)
     let find id s = match IdMmap.find_opt id s.env with
     | Some envlab -> Some (EnvVals.find envlab s.envvals)
@@ -416,6 +414,9 @@ struct
   module Heap =
   struct
     let add label obj s = { s with heap = SHeap.add label obj s.heap }
+    let add_fresh obj s =
+      let heap, label = SHeap.add_fresh obj s.heap in
+      { s with heap }, label
     let find label s = SHeap.find label s.heap
   end
 
@@ -472,7 +473,8 @@ struct
   let res_num n s = res_v (Mk.num n) s
   let res_str x s = res_v (Mk.str x) s
   let res_heap_add l obj s = res_v (SHeapLabel l) (Heap.add l obj s)
-  let res_heap_add_fresh obj s = res_heap_add (HeapLabel.fresh ()) obj s
+  let res_heap_add_fresh obj s =
+    let s, l = Heap.add_fresh obj s in res_v (SHeapLabel l) s
   let res_id ~typ id s = res_v (Mk.sid ~typ id) s
   let res_op1 ~typ o v s = res_v (Mk.sop1 ~typ o v) s
   let res_op2 ~typ o v1 v2 s = res_v (Mk.sop2 ~typ o v1 v2) s

@@ -4,18 +4,79 @@ open MyPervasives
 module HeapLabel :
 sig
   type t
+  type state
   val compare : t -> t -> int
-  val fresh : unit -> t
+  val compare_state : state -> state -> int
+  val empty : state
+  val fresh : state -> state * t
   val to_string : t -> string
 end =
 struct
   type t = int
-
+  type state = int
   let compare = Pervasives.compare
-
-  let fresh = Fresh.fresh
-
+  let compare_state = Pervasives.compare
+  let empty = 0
+  let fresh s = (s+1), s
   let to_string l = sprintf "l%03d" l
+end
+
+module LabMap =
+struct
+  module type LabOrderedType =
+  sig
+    type t
+    type state
+    val compare : t -> t -> int
+    val compare_state : state -> state -> int
+    val empty : state
+    val fresh : state -> state * t
+  end
+  module type S =
+  sig
+    type key
+    type +'a t
+    val empty : 'a t
+    val is_empty : 'a t -> bool
+    val fresh : 'a t -> 'a t * key
+    val add : key -> 'a -> 'a t -> 'a t
+    val add_fresh : 'a -> 'a t -> 'a t * key
+    val find : key -> 'a t -> 'a
+    val remove : key -> 'a t -> 'a t
+    val mem : key -> 'a t -> bool
+    val iter : (key -> 'a -> unit) -> 'a t -> unit
+    val map : ('a -> 'b) -> 'a t -> 'b t
+    val mapi : (key -> 'a -> 'b) -> 'a t -> 'b t
+    val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+    val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+    val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
+  end
+  module Make (Ord: LabOrderedType) : S with type key = Ord.t =
+  struct
+    module M = Map.Make(Ord)
+    type key = Ord.t
+    type +'a t = { m : 'a M.t ; s : Ord.state }
+    let empty = { m = M.empty ; s = Ord.empty }
+    let is_empty t = M.is_empty t.m
+    let fresh t = let s, k = Ord.fresh t.s in { t with s }, k
+    let add k v t = { t with m = M.add k v t.m }
+    let add_fresh v t =
+      let s, k = Ord.fresh t.s in
+      { m = M.add k v t.m ; s }, k
+    let find k t = M.find k t.m
+    let remove k t = { t with m = M.remove k t.m }
+    let mem k t = M.mem k t.m
+    let iter f t = M.iter f t.m
+    let map f t = { t with m = M.map f t.m }
+    let mapi f t = { t with m = M.mapi f t.m }
+    let fold f t a = M.fold f t.m a
+    let compare f t1 t2 =
+      let c = Ord.compare_state t1.s t2.s in
+      if c <> 0 then c
+      else M.compare f t1.m t2.m
+    let equal f t1 t2 =
+      (Ord.compare_state t1.s t2.s = 0) && (M.equal f t1.m t2.m)
+  end
 end
 
 module SId :

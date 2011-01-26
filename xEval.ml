@@ -370,7 +370,7 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       SState.res_v (SClosure lambda) s
   | EFix(x, { p = pos ; e = ELambda(xl, e) }) ->
       let capture_env = SState.Env.get s in
-      let envlab = SState.Env.fresh_label () in
+      let s, envlab = SState.Env.fresh_label s in
       let rec lambda args s =
 	if List.length args != List.length xl then
 	  arity_mismatch_err ~pos xl args s

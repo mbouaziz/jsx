@@ -223,22 +223,6 @@ struct
       in aux 0
 end
 
-module Fresh :
-sig
-  val fresh : unit -> int
-  type state
-  (* Should be used with marshalling *)
-  val save_state : unit -> state
-  val load_state : state -> unit
-end =
-struct
-  type state = int
-  let last = ref 0
-  let fresh () = incr last; !last
-  let save_state () = !last
-  let load_state x = last := x
-end
-
 module StringMap = Map.Make(String)
 module StringMmap = MultiMap.Make(String)
 module IdMmap = MultiMap.Make(IdOrderedType)
