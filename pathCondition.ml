@@ -37,7 +37,7 @@ struct
 
   module F = (* functions *)
   struct
-    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>=";"bool!","bool_neg"]
+    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>=";"bool!","bool_neg";"=","smt="]
     let c x = match StringMap.find_opt x conv with
     | Some x -> x | None -> x
     let z = c @> env_find ~kind:"functions" env.funs
@@ -369,11 +369,11 @@ struct
     let sid_str_var sid = SMT.mk_var (Symbols.str sid) StrRepr.sort
 
     let rec of_typed_symb = function
-      | TAny, SId sid -> sid_var sid
       | TBool, SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
       | TInt, SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
       | TNum, SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
       | TStr, SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
+      | TAny, SId sid -> sid_var sid
       | _, SOp1 (o, x) -> of_op1 o (of_svalue x)
       | _, SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
       | _, SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)

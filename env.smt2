@@ -197,6 +197,8 @@
 ;;  Comparison
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define (smt= (v1 jsVal) (v2 jsVal)) (VBool (= v1 v2)))
+
 (define (stx-eq (v1 jsVal) (v2 jsVal))
   (or (= v1 v2)
       (ite (and (is_VNum v1) (is_VInt v2))

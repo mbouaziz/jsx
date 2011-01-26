@@ -10,17 +10,6 @@ open LambdaJS.Syntax
 let _xeval = ref (fun _ _ -> failwith "xeval not initialized yet")
 let xeval e s = !_xeval e s
 
-let to_int ~pos x s = match x with
-| SConst (CInt n) -> SValue n
-| SConst (CNum n) -> SValue (int_of_float n)
-| _ -> SExn (SState.throw_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x)))
-
-let to_float ~pos x s = match x with
-| SConst (CInt n) -> SValue (float_of_int n)
-| SConst (CNum n) -> SValue n
-| _ -> SExn (SState.throw_str ~pos s (sprintf "expected number, got %s" (ToString.svalue s x)))
-
-
 let float_str = LambdaJS.Delta.float_str
 
 let const_typeof ~fname ~pos c s = match c with
@@ -36,8 +25,8 @@ let const_typeof ~fname ~pos c s = match c with
 
 let bool_neg ~pos v s = match v with
 | SConst (CBool b) -> SState.res_bool (not b) s
-| SSymb (TBool, _)
-| SSymb (TAny, _) -> SState.res_op1 "bool!" v s
+| SSymb (TBool, _) -> SState.res_op1 ~typ:TBool "bool!" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "bool!" v s
 | _ -> SState.throw_str ~pos s "bool!"
 
 let eval ~pos v s = match v with
@@ -66,7 +55,8 @@ let eval ~pos v s = match v with
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.throw_str ~pos s "eval"
-| SSymb _ -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
+| SSymb (TStr, _)
+| SSymb (TAny, _) -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
 | _ -> SState.throw_str ~pos s "eval"
 
 let fail ~pos v s = SState.res_false s (* no such thing in my implementation *)
@@ -82,7 +72,7 @@ let get_proto ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "get-proto"
-| SSymb _ -> SState.res_op1 "get-proto" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "get-proto" v s
 | _ -> SState.throw_str ~pos s "get-proto"
 
 let is_array ~pos v s = match v with
@@ -90,7 +80,7 @@ let is_array ~pos v s = match v with
     let { attrs ; _ } = SState.Heap.find label s in
     begin match IdMap.find_opt "class" attrs with
     | Some (SConst (CString "Array")) -> SState.res_true s
-    | Some (SSymb _ as c) -> SState.res_op2 "stx=" (SConst (CString "Array")) c s
+    | Some (SSymb _ as c) -> SState.res_op2 ~typ:TBool "stx=" (SConst (CString "Array")) c s
     | Some _ -> SState.res_false s
     | None -> SState.throw_str ~pos s "is-array"
     end
@@ -98,7 +88,7 @@ let is_array ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "is-array"
-| SSymb _ -> SState.res_op1 "is-array" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-array" v s
 | _ -> SState.throw_str ~pos s "is-array"
 
 let is_callable ~pos v s = match v with
@@ -112,7 +102,7 @@ let is_callable ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.res_false s
-| SSymb _ -> SState.res_op1 "is-callable" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "is-callable" v s
 | _ -> SState.res_false s
 
 let is_extensible ~pos v s = match v with
@@ -128,7 +118,7 @@ let is_extensible ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "is-extensible"
-| SSymb _ -> SState.res_op1 "is-extensible" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-extensible" v s
 | _ -> SState.throw_str ~pos s "is-extensible"
 
 let object_to_string ~pos v s = match v with
@@ -136,7 +126,7 @@ let object_to_string ~pos v s = match v with
     let { attrs ; _ } = SState.Heap.find label s in
     begin match IdMap.find_opt "class" attrs with
     | Some (SConst (CString x)) -> SState.res_str (sprintf "[object %s]" x) s
-    | Some (SSymb _ as v) -> SState.res_op2 "string+" (Mk.str "[object ") (Mk.sop2 "string+" v (Mk.str "]")) s
+    | Some (SSymb _ as v) -> SState.res_op2 ~typ:TAny "string+" (Mk.str "[object ") (Mk.sop2 "string+" v (Mk.str "]")) s
     | Some _ -> SState.throw_str ~pos s "object-to-string, class wasn't a string"
     | None -> SState.throw_str ~pos s "object-to-string, didn't find class"
     end
@@ -144,7 +134,7 @@ let object_to_string ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "object-to-string, wasn't given object"
-| SSymb _ -> SState.res_op1 "object-to-string" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "object-to-string" v s
 | _ -> SState.throw_str ~pos s "object-to-string, wasn't given object"
 
 
@@ -161,7 +151,7 @@ let get_own_property_names ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "own-property-names"
-| SSymb _ -> SState.res_op1 "own-property-names" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "own-property-names" v s
 | _ -> SState.throw_str ~pos s "own-property-names"
 
 let prevent_extensions ~pos v s = match v with
@@ -174,7 +164,7 @@ let prevent_extensions ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "prevent-extensions"
-| SSymb _ -> SState.res_op1 "prevent-extensions" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prevent-extensions" v s
 | _ -> SState.throw_str ~pos s "prevent-extensions"
 
 let prim_to_bool ~pos v s = match v with
@@ -189,10 +179,10 @@ let prim_to_bool ~pos v s = match v with
     | CRegexp _ -> SState.res_true s
     end
 | SSymb (TBool, _) -> SState.res_v v s
-| SSymb (TInt, _) -> SState.res_op1 "int->bool" v s
-| SSymb (TNum, _) -> SState.res_op1 "num->bool" v s
-| SSymb (TStr, _) -> SState.res_op1 "str->bool" v s
-| SSymb _ -> SState.res_op1 "prim->bool" v s
+| SSymb (TInt, _) -> SState.res_op1 ~typ:TBool "int->bool" v s
+| SSymb (TNum, _) -> SState.res_op1 ~typ:TBool "num->bool" v s
+| SSymb (TStr, _) -> SState.res_op1 ~typ:TBool "str->bool" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "prim->bool" v s
 | _ -> SState.res_true s
 
 let prim_to_num ~pos v s = match v with
@@ -207,11 +197,11 @@ let prim_to_num ~pos v s = match v with
     | CString x -> SState.res_num (try float_of_string x with Failure "float_of_string" -> nan) s
     | CRegexp _ -> SState.err ~pos s "prim_to_num of regexp"
     end
-| SSymb (TBool, _) -> SState.res_op1 "bool->num" v s
+| SSymb (TBool, _) -> SState.res_op1 ~typ:TInt "bool->num" v s
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_v v s
-| SSymb (TStr, _) -> SState.res_op1 "str->num" v s
-| SSymb _ -> SState.res_op1 "prim->num" v s
+| SSymb (TStr, _) -> SState.res_op1 ~typ:TAny "str->num" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prim->num" v s
 | _ -> SState.throw_str ~pos s "prim_to_num"
 
 let prim_to_str ~pos v s = match v with
@@ -225,11 +215,11 @@ let prim_to_str ~pos v s = match v with
     | CBool b -> SState.res_str (string_of_bool b) s
     | CRegexp _ -> SState.err ~pos s "Error [prim_to_str] regexp NYI"
     end
-| SSymb (TBool, _) -> SState.res_op1 "bool->str" v s
-| SSymb (TInt, _) -> SState.res_op1 "int->str" v s
-| SSymb (TNum, _) -> SState.res_op1 "num->str" v s
+| SSymb (TBool, _) -> SState.res_op1 ~typ:TStr "bool->str" v s
+| SSymb (TInt, _) -> SState.res_op1 ~typ:TStr "int->str" v s
+| SSymb (TNum, _) -> SState.res_op1 ~typ:TStr "num->str" v s
 | SSymb (TStr, _) -> SState.res_v v s
-| SSymb _ -> SState.res_op1 "prim->str" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prim->str" v s
 | _ -> SState.throw_str ~pos s "prim_to_str"
 
 let is_primitive ~pos v s = match v with
@@ -238,7 +228,7 @@ let is_primitive ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.res_true s
-| SSymb _ -> SState.res_op1 "primitive?" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "primitive?" v s
 | _ -> SState.res_false s
 
 let print ~pos v s = s |> SState.Output.print v |> SState.singleton
@@ -252,7 +242,7 @@ let surface_typeof ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_str "number" s
 | SSymb (TStr, _) -> SState.res_str "string" s
-| SSymb _ -> SState.res_op1 "surface-typeof" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "surface-typeof" v s
 | SClosure _ -> SState.throw_str ~pos s "surface-typeof"
 
 let get_property_names ~pos v s = match v with
@@ -285,9 +275,9 @@ let get_property_names ~pos v s = match v with
     | None -> set_opt
     in	
     begin match all_protos_props v with
-    | None -> SState.res_op1 "property-names" v s
+    | None -> SState.res_op1 ~typ:TAny "property-names" v s
     | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
-      | None -> SState.res_op1 "property-names" v s
+      | None -> SState.res_op1 ~typ:TAny "property-names" v s
       | Some name_set ->
 	  let add_name name (i, m) =
 	    let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (Mk.str name)) m in
@@ -300,13 +290,13 @@ let get_property_names ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "get-property-names"
-| SSymb _ -> SState.res_op1 "property-names" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "property-names" v s
 | _ -> SState.throw_str ~pos s "get-property-names"
 
 let _symbol f_name typ ~pos v s =
   if !Options.opt_symbols then match v with
-  | SConst (CString id) -> SState.res_id (SId.from_string id) typ s
-  | SConst (CInt n) -> SState.res_id (SId.from_string (string_of_int n)) typ s
+  | SConst (CString id) -> SState.res_id ~typ (SId.from_string id) s
+  | SConst (CInt n) -> SState.res_id ~typ (SId.from_string (string_of_int n)) s
   | _ -> SState.err ~pos s (sprintf "Error [%s] Please, don't do stupid things with symbolic id" f_name)
   else
     failwith (sprintf "Primitive \"%s\" used with -no-symb option" f_name)
@@ -321,10 +311,10 @@ let to_int32 ~pos v s = match v with
 | SSymb (TInt, _)
 | SConst (CInt _) -> SState.res_v v s
 | SConst (CNum f) -> SState.res_int (int_of_float f) s
-| SSymb (TNum, _) -> SState.res_op1 "num->int32" v s
+| SSymb (TNum, _) -> SState.res_op1 ~typ:TInt "num->int32" v s
 | SSymb (TBool, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "to-int"
-| SSymb _ -> SState.res_op1 "to-int32" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "to-int32" v s
 | _ -> SState.throw_str ~pos s "to-int"
 
 let typeof ~pos v s = match v with
@@ -335,7 +325,7 @@ let typeof ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_str "number" s
 | SSymb (TStr, _) -> SState.res_str "string" s
-| SSymb _ -> SState.res_op1 "typeof" v s
+| SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "typeof" v s
 
 let err_op1 ~op ~pos _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
 
@@ -373,13 +363,18 @@ let op1 ~pos op v s =
 
 (* Binary operators *)
 
+(* the type informations are good for +, -, * only. TODO *)
 let arith ~pos op2_op i_op f_op v1 v2 s = match v1, v2 with
 | SConst (CInt i1), SConst (CInt i2) -> SState.res_int (i_op i1 i2) s
 | SConst (CNum f1), SConst (CNum f2) -> SState.res_num (f_op f1 f2) s
 | SConst (CNum f1), SConst (CInt i2) -> SState.res_num (f_op f1 (float_of_int i2)) s
 | SConst (CInt i1), SConst (CNum f2) -> SState.res_num (f_op (float_of_int i1) f2) s
-| SSymb _, _
-| _, SSymb _ -> SState.res_op2 op2_op v1 v2 s
+| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _)) ->
+    SState.res_op2 ~typ:TInt op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
+    SState.res_op2 ~typ:TNum op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
+    SState.res_op2 ~typ:TAny op2_op v1 v2 s
 | _ -> SState.throw_str ~pos s "arithmetic operator"
 
 let arith_sum ~pos v1 v2 s = arith ~pos "+" (+) (+.) v1 v2 s
@@ -388,11 +383,12 @@ let arith_sub ~pos v1 v2 s = arith ~pos "-" (-) (-.) v1 v2 s
 
 let arith_mul ~pos v1 v2 s = arith ~pos "*" ( * ) ( *. ) v1 v2 s
 
-let arith0 ~pos op2_op i_op f_op def v1 v2 s = match v2 with
-| SConst (CInt 0)
-| SConst (CNum 0.0) -> SState.res_num def s (* Simplified: no thrown error if v1 is not ok *)
-| SSymb _ -> (* resl_rv_if s (Mk.sop2 "=" v2 (num 0.0)) (SValue (num def)) (SValue (Mk.sop2 op2_op v1 v2)) *)
-    SState.res_op2 op2_op v1 v2 s
+let arith0 ~pos op2_op i_op f_op def v1 v2 s = match v1, v2 with
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), SConst (CInt 0 | CNum 0.0) ->
+    SState.res_num def s
+| SSymb (TAny, _), SConst (CInt 0 | CNum 0.0) ->
+    SState.res_num def s (* simplified: no thrown error is v1 is not a number *)
+(* | SSymb _ -> resl_rv_if s (Mk.sop2 "=" v2 (num 0.0)) (SValue (num def)) (SValue (Mk.sop2 op2_op v1 v2)) *)
 | _ -> arith ~pos op2_op i_op f_op v1 v2 s
 
 let arith_div ~pos v1 v2 s = arith0 ~pos "/" (/) (/.) infinity v1 v2 s
@@ -400,13 +396,15 @@ let arith_div ~pos v1 v2 s = arith0 ~pos "/" (/) (/.) infinity v1 v2 s
 let arith_mod ~pos v1 v2 s = arith0 ~pos "%" (mod) mod_float nan v1 v2 s
 
 let bitwise op2_op i_op ~pos v1 v2 s = match v1, v2 with
-| SSymb _, _
-| _, SSymb _ -> SState.res_op2 op2_op v1 v2 s
-| _ -> match to_int ~pos v1 s with
-  | SExn sl -> sl
-  | SValue i1 -> match to_int ~pos v2 s with
-    | SExn sl -> sl
-    | SValue i2 -> SState.res_int (i_op i1 i2) s
+| SConst (CInt i1), SConst (CInt i2) -> SState.res_int (i_op i1 i2) s
+| SConst (CInt i1), SConst (CNum n2) -> SState.res_int (i_op i1 (int_of_float n2)) s
+| SConst (CNum n1), SConst (CInt i2) -> SState.res_int (i_op (int_of_float n1) i2) s
+| SConst (CNum n1), SConst (CNum n2) -> SState.res_int (i_op (int_of_float n1) (int_of_float n2)) s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
+    SState.res_op2 ~typ:TInt op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
+    SState.res_op2 ~typ:TAny op2_op v1 v2 s
+| _ -> SState.throw_str ~pos s (sprintf "expected numbers, got %s and %s" (ToString.svalue s v1) (ToString.svalue s v2))
 
 let bitwise_and ~pos v1 v2 s = bitwise "&" (land) ~pos v1 v2 s
 
@@ -420,28 +418,28 @@ let bitwise_zfshiftr ~pos v1 v2 s = bitwise ">>>" (lsr) ~pos v1 v2 s
 
 let bitwise_shiftr ~pos v1 v2 s = bitwise ">>" (asr) ~pos v1 v2 s
 
-let arith_cmp op2_op f_cmp ~pos v1 v2 s = match v1, v2 with
-| SSymb _, _
-| _, SSymb _ -> SState.res_op2 op2_op v1 v2 s
-| _ -> match to_float ~pos v1 s with
-  | SExn sl -> sl
-  | SValue f1 -> match to_float ~pos v2 s with
-    | SExn sl -> sl
-    | SValue f2 -> SState.res_bool (f_cmp f1 f2) s
+let arith_cmp op2_op i_cmp f_cmp ~pos v1 v2 s = match v1, v2 with
+| SConst (CInt i1), SConst (CInt i2) -> SState.res_bool (i_cmp i1 i2) s
+| SConst (CInt i1), SConst (CNum n2) -> SState.res_bool (f_cmp (float_of_int i1) n2) s
+| SConst (CNum n1), SConst (CInt i2) -> SState.res_bool (f_cmp n1 (float_of_int i2)) s
+| SConst (CNum n1), SConst (CNum n2) -> SState.res_bool (f_cmp n1 n2) s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
+    SState.res_op2 ~typ:TBool op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
+    SState.res_op2 ~typ:TAny op2_op v1 v2 s
+| _ -> SState.throw_str ~pos s (sprintf "expected numbers, got %s and %s" (ToString.svalue s v1) (ToString.svalue s v2))
 
-let arith_lt ~pos v1 v2 s = arith_cmp "<" (<) ~pos v1 v2 s
+let arith_lt ~pos v1 v2 s = arith_cmp "<" (<) (<) ~pos v1 v2 s
 
-let arith_le ~pos v1 v2 s = arith_cmp "<=" (<=) ~pos v1 v2 s
+let arith_le ~pos v1 v2 s = arith_cmp "<=" (<=) (<=) ~pos v1 v2 s
 
-let arith_gt ~pos v1 v2 s = arith_cmp ">" (>) ~pos v1 v2 s
+let arith_gt ~pos v1 v2 s = arith_cmp ">" (>) (>) ~pos v1 v2 s
 
-let arith_ge ~pos v1 v2 s = arith_cmp ">=" (>=) ~pos v1 v2 s
+let arith_ge ~pos v1 v2 s = arith_cmp ">=" (>=) (>=) ~pos v1 v2 s
 
 let abs_eq ~pos v1 v2 s = match v1, v2 with
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
 | v1, v2 when v1 == v2 || v1 = v2 -> SState.res_true s
-| SSymb _, _
-| _, SSymb _ -> SState.res_op2 "abs=" v1 v2 s
 | SConst c1, SConst c2 ->
     let b = match c1, c2 with
     | CNull, CUndefined
@@ -458,6 +456,15 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
     | CInt i, CNum f -> float_of_int i = f
     | _ -> false
     in SState.res_bool b s
+| (SConst (CBool _) | SSymb (TBool, _)), (SConst (CBool _) | SSymb (TBool, _))
+| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _))
+| (SConst (CNum _) | SSymb (TNum, _)), (SConst (CNum _) | SSymb (TNum, _))
+| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
+    SState.res_op2 ~typ:TBool "=" v1 v2 s
+| (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)), (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)) ->
+    SState.res_op2 ~typ:TBool "abs=" v1 v2 s
+| (SConst _ | SSymb _), (SConst _ | SSymb _) ->
+    SState.res_op2 ~typ:TAny "abs=" v1 v2 s
 | _ -> SState.throw_str ~pos s "expected primitive constant"
 
 let stx_eq ~pos v1 v2 s = match v1, v2 with
@@ -465,33 +472,35 @@ let stx_eq ~pos v1 v2 s = match v1, v2 with
 | v1, v2 when v1 == v2 || v1 = v2 -> SState.res_true s 
 | SConst (CNum n), SConst (CInt i)
 | SConst (CInt i), SConst (CNum n) -> SState.res_bool (float_of_int i = n) s
-| SSymb _, _
-| _, SSymb _ -> SState.res_op2 "stx=" v1 v2 s
-| _, _ -> SState.res_false s
+| SConst _, SConst _ -> SState.res_false s
+| (SConst (CBool _) | SSymb (TBool, _)), (SConst (CBool _) | SSymb (TBool, _))
+| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _))
+| (SConst (CNum _) | SSymb (TNum, _)), (SConst (CNum _) | SSymb (TNum, _))
+| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
+    SState.res_op2 ~typ:TBool "=" v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
+    SState.res_op2 ~typ:TBool "stx=" v1 v2 s
+| SSymb (TAny, _), (SConst _ | SSymb _)
+| (SConst _ | SSymb _), SSymb (TAny, _) ->
+    SState.res_op2 ~typ:TAny "stx=" v1 v2 s
+| _ -> SState.res_false s
 
 let string_plus ~pos v1 v2 s = match v1, v2 with
 | SConst (CString x1), SConst (CString x2) -> SState.res_str (x1 ^ x2) s
-| SSymb (TBool, _), _ | _, SSymb (TBool, _)
-| SSymb (TInt, _), _ | _, SSymb (TInt, _)
-| SSymb (TNum, _), _ | _, SSymb (TNum, _)
-    -> SState.throw_str ~pos s "string concatenation"
-| SConst (CString _), SSymb _
-| SSymb _, SConst (CString _)
-| SSymb _, SSymb _ -> SState.res_op2 "string+" v1 v2 s
+| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
+    SState.res_op2 ~typ:TStr "string+" v1 v2 s
+| (SConst (CString _) | SSymb ((TStr | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
+    SState.res_op2 ~typ:TAny "string+" v1 v2 s
 | _ -> SState.throw_str ~pos s "string concatenation"
 
 let has_own_property ~pos v1 v2 s = match v1, v2 with
 | SHeapLabel label, SConst (CString prop) ->
     let { props ; _ } = SState.Heap.find label s in
     SState.res_bool (IdMap.mem prop props) s
-| SSymb (TBool, _), _ | _, SSymb (TBool, _)
-| SSymb (TInt, _), _ | _, SSymb (TInt, _)
-| SSymb (TNum, _),_  | _, SSymb (TNum, _)
-| SSymb (TStr, _),_  -> SState.throw_str ~pos s "has-own-property?"
-| SHeapLabel _, SSymb _
-| SSymb _, SConst (CString _)
-| SSymb _, SSymb _ -> SState.res_op2 "has-own-property?" v1 v2 s
-| _, _ -> SState.throw_str ~pos s "has-own-property?"
+| SHeapLabel _, SSymb (TStr, _) -> SState.res_op2 ~typ:TBool "has-own-property?" v1 v2 s
+| (SHeapLabel _ | SSymb (TAny, _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
+    SState.res_op2 ~typ:TAny "has-own-property?" v1 v2 s
+| _ -> SState.throw_str ~pos s "has-own-property?"
 
 let has_property ~pos v1 v2 s = match v1, v2 with
 | SHeapLabel _, SConst (CString prop) ->
@@ -504,18 +513,13 @@ let has_property ~pos v1 v2 s = match v1, v2 with
 	  | None -> SState.res_false s
 	  | Some proto -> has_prop proto
 	  end
-      | SSymb _ -> SState.res_op2 "has-property?" v1 v2 s
+      | SSymb _ -> SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
       | _ -> SState.res_false s
     in
     has_prop v1
-| SSymb (TBool, _), _ | _, SSymb (TBool, _)
-| SSymb (TInt, _),_  | _, SSymb (TInt, _)
-| SSymb (TNum, _),_  | _, SSymb (TNum, _)
-| SSymb (TStr, _),_  -> SState.res_false s
-| SHeapLabel _, SSymb _
-| SSymb _, SConst (CString _)
-| SSymb _, SSymb _ -> SState.res_op2 "has-property?" v1 v2 s
-| _, _ -> SState.res_false s
+| (SHeapLabel _ | SSymb (TAny, _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
+    SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
+| _ -> SState.res_false s
 
 let err_op2 ~op ~pos _ _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 
