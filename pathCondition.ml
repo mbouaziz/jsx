@@ -60,6 +60,7 @@ struct
     let isErr = z "is_VErr"
 
     let valToBool = z "ValToBool"
+    let notValToBool = z "NotValToBool"
     let is_callable = z "is-callable"
     let is_primitive = z "primitive?"
     let int_to_bool = z "int->bool"
@@ -385,14 +386,13 @@ struct
       | SSymb ts -> of_typed_symb ts
 
     let mk_to_bool x = SMT.mk_appf F.valToBool [| x |]
-
-    let of_bool_svalue = function
-      | SSymb (TBool, SId sid) -> sid_bool_var sid
-      | v -> mk_to_bool (of_svalue v)
+    let mk_not_to_bool x = SMT.mk_appf F.notValToBool [| x |]
 
     let of_predicate = function
-      | PredVal v -> of_bool_svalue v
-      | PredNotVal v -> SMT.mk_not (mk_to_bool (of_svalue v))
+      | PredVal (SSymb (TBool, SId sid)) -> sid_bool_var sid
+      | PredVal v -> mk_to_bool (of_svalue v)
+      | PredNotVal (SSymb (TBool, SId sid)) -> SMT.mk_not (sid_bool_var sid)
+      | PredNotVal v -> mk_not_to_bool (of_svalue v)
   end
 
   module Symbols =
