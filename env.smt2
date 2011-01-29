@@ -6,10 +6,14 @@
   (mk-string (length int) (beg BitVec[128]))
 )))
 
+(define-sorts ((heaplabel Int)))
+
 (declare-datatypes ((err
   ErrExpectedBool
   ErrExpectedNum
   ErrExpectedString
+  ErrExpectedPrim
+  ErrExpectedRef
 )))
 
 (declare-datatypes ((jsVal
@@ -19,6 +23,7 @@
   (VInt (i int))
   (VNum (n num))
   (VString (s string))
+  (VRef (r heaplabel))
   (VErr (e err))
 )))
 
@@ -43,6 +48,9 @@
 (define-fun |str:boolean| () string (mk-string bv7[32] |bvstr:boolean|[128]))
 (define-fun |str:number| () string (mk-string bv6[32] |bvstr:number|[128]))
 (define-fun |str:string| () string (mk-string bv6[32] |bvstr:string|[128]))
+(define-fun |str:object| () string (mk-string bv6[32] |bvstr:object|[128]))
+(define-fun |str:function| () string (mk-string bv8[32] |bvstr:function|[128]))
+(define-fun |str:code| () string (mk-string bv4[32] |bvstr:code|[128]))
 (define-fun str-ERROR () string (mk-string (bvsub bv0[32] bv1[32]) (bvsub bv0[128] bv1[128])))
 
 
@@ -67,6 +75,7 @@
 (define (int-to-bool (i int)) (not (= i iZero)))
 (define (num-to-bool (n num)) (not (or (= n nZero) (= n nNaN))))
 (define (str-to-bool (s string)) (not (= s |str:|)))
+(define (ref-to-bool (r heaplabel)) true)
 (declare-fun err-to-bool (err) Bool)
 (define (prim-to-bool (v jsVal))
   (and (not (is_VUndefined v)) (not (is_VNull v))
@@ -74,20 +83,27 @@
   (ite (is_VInt v) (int-to-bool (i v))
   (ite (is_VNum v) (num-to-bool (n v))
   (ite (is_VString v) (str-to-bool (s v))
+  (ite (is_VRef v) (ref-to-bool (r v))
   (err-to-bool (e v))
-))))))
+)))))))
 (define (int->bool (v jsVal)) (VBool (int-to-bool (i v))))
 (define (num->bool (v jsVal)) (VBool (num-to-bool (n v))))
 (define (str->bool (v jsVal)) (VBool (str-to-bool (s v))))
-(define (err->bool (v jsVal)) (VBool (err-to-bool (e v))))
-(define (prim->bool (v jsVal)) (VBool (prim-to-bool v)))
+(define (prim->bool (v jsVal))
+  (ite (or (is_VUndefined v) (is_VNull v)) (VBool false)
+  (ite (is_VBool v) v
+  (ite (is_VInt v) (int->bool v)
+  (ite (is_VNum v) (num->bool v)
+  (ite (is_VString v) (str->bool v)
+  (VErr ErrExpectedPrim)
+))))))
 (define (ValToBool (v jsVal))
   (and (not (is_VUndefined v)) (not (is_VNull v))
   (ite (is_VBool v) (b v)
   (ite (is_VInt v) (int-to-bool (i v))
   (ite (is_VNum v) (num-to-bool (n v))
   (ite (is_VString v) (str-to-bool (s v))
-  false
+  (is_VRef v)
 ))))))
 (define (NotValToBool (v jsVal))
   (or (is_VUndefined v) (is_VNull v)
@@ -104,8 +120,9 @@
 (define (number->int32 (v jsVal))
   (ite (is_VInt v) v
   (ite (is_VNum v) (num->int32 v)
-  ErrExpectedNum
-)))
+  (ite (is_VErr v) v
+  (VErr ErrExpectedNum)
+))))
 (define (to-int32 (v jsVal)) (number->int32 v))
 
 
@@ -131,8 +148,9 @@
   (ite (is_VString v) (str-to-num (s v))
   (ite (is_VUndefined v) (VNum nNaN)
   (ite (is_VNull v) (VInt iZero)
-  (VInt iZero)
-)))))))
+  (ite (is_VRef v) (VErr ErrExpectedPrim)
+  v ; VErr gives the same VErr
+))))))))
 (define (bool->num (v jsVal)) (bool-to-num (b v)))
 (define (int->num (v jsVal)) (int-to-num (i v)))
 (define (str->num (v jsVal)) (str-to-num (s v)))
@@ -165,22 +183,33 @@
 (define (bool->str (v jsVal)) (VString (bool-to-str (b v))))
 (define (int->str (v jsVal)) (VString (int-to-str (i v))))
 (define (num->str (v jsVal)) (VString (num-to-str (n v))))
-(define (prim->str (v jsVal)) (VString (prim-to-str v)))
-
+(define (prim->str (v jsVal))
+  (ite (is_VNull v) (VString |str:null|)
+  (ite (is_VUndefined v) (VString |str:undefined|)
+  (ite (is_VBool v) (bool->str v)
+  (ite (is_VInt v) (int->str v)
+  (ite (is_VNum v) (num->str v)
+  (ite (is_VString v) v
+  (ite (is_VRef v) (VErr ErrExpectedPrim)
+  v ; VErr
+))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Arithmetic
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; TODO: check for overflows on Int operations (in such cases, cast to Num)
+; if done, change type flags in xDelta
 
 (define (js+ (v1 jsVal) (v2 jsVal))
   (ite (and (is_VInt v1) (is_VInt v2)) (VInt (bvadd (i v1) (i v2)))
   (ite (and (is_VNum v1) (is_VNum v2)) (VNum (+ (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VNum (+ (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VNum (+ (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 
 (define (js- (v1 jsVal) (v2 jsVal))
@@ -188,8 +217,10 @@
   (ite (and (is_VNum v1) (is_VNum v2)) (VNum (- (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VNum (- (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VNum (- (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 
 (define (js* (v1 jsVal) (v2 jsVal))
@@ -197,8 +228,10 @@
   (ite (and (is_VNum v1) (is_VNum v2)) (VNum (* (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VNum (* (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VNum (* (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -214,7 +247,11 @@
       (and (is_VInt v1) (is_VNum v2)
          (= (int-to-num (i v1)) (n v2)))
 )))
-(define (stx= (v1 jsVal) (v2 jsVal)) (VBool (stx-eq v1 v2)))
+(define (stx= (v1 jsVal) (v2 jsVal))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
+  (VBool (stx-eq v1 v2))
+)))
 
 
 (define (abs-eq-bool-int (b Bool) (i int))
@@ -258,7 +295,11 @@
       (ite (and (is_VInt v1) (is_VNum v2)) (abs-eq-int-num (i v1) (n v2))
       false
 ))))))))))))
-(define (abs= (v1 jsVal) (v2 jsVal)) (VBool (abs-eq v1 v2)))
+(define (abs= (v1 jsVal) (v2 jsVal))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
+  (VBool (abs-eq v1 v2))
+)))
 
 
 ; Arithmetic comparisons
@@ -268,39 +309,80 @@
   (ite (and (is_VNum v1) (is_VNum v2)) (VBool (< (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VBool (< (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VBool (< (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 (define (js<= (v1 jsVal) (v2 jsVal))
   (ite (and (is_VInt v1) (is_VInt v2)) (VBool (bvsle (i v1) (i v2)))
   (ite (and (is_VNum v1) (is_VNum v2)) (VBool (<= (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VBool (<= (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VBool (<= (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 (define (js> (v1 jsVal) (v2 jsVal))
   (ite (and (is_VInt v1) (is_VInt v2)) (VBool (bvsgt (i v1) (i v2)))
   (ite (and (is_VNum v1) (is_VNum v2)) (VBool (> (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VBool (> (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VBool (> (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
 (define (js>= (v1 jsVal) (v2 jsVal))
   (ite (and (is_VInt v1) (is_VInt v2)) (VBool (bvsge (i v1) (i v2)))
   (ite (and (is_VNum v1) (is_VNum v2)) (VBool (>= (n v1) (n v2)))
   (ite (and (is_VInt v1) (is_VNum v2)) (VBool (>= (int-to-num (i v1)) (n v2)))
   (ite (and (is_VNum v1) (is_VInt v2)) (VBool (>= (n v1) (int-to-num (i v2))))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedNum)
-)))))
+)))))))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  Objects
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(declare-fun has-attr (heaplabel string) Bool)
+
+(define (is-function (r heaplabel)) (has-attr r |str:code|))
+(define (ref-is-callable (v jsVal)) (VBool (is-function (r v))))
+(define (is-callable (v jsVal))
+  (ite (is_VErr v) v
+  (ite (is_VRef v) (ref-is-callabel v)
+  (VBool false)
+)))
+
+
+(declare-fun uninterpreted-get-field (heaplabel string) jsVal)
+(define (ref-str-get-field (v1 jsVal) (v2 jsVal))
+  (uninterpreted-get-field (r v1) (s v2))
+)
+(define (get-field (v1 jsVal) (v2 jsVal))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
+  (ite (is_VRef v1)
+    (ite (is_VString v2)
+      (ref-str-get-field v1 v2)
+    (VErr ErrExpectedString)
+    )
+  (VErr ErrExpectedRef)
+))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  Types
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (primitive? (v jsVal)) (VBool true))
+(define (primitive? (v jsVal))
+  (ite (is_VErr v) v
+  (VBool (not (is_VRef v)))
+))
 
 
 (define (typeof (v jsVal))
@@ -309,9 +391,19 @@
   (ite (is_VBool v) (VString |str:boolean|)
   (ite (is_VString v) (VString |str:string|)
   (ite (or (is_VNum v) (is_VInt v)) (VString |str:number|)
-  (VErr (e v))
-))))))
-(define (surface-typeof (v jsVal)) (typeof v))
+  (ite (is_VRef v) (VString |str:object|)
+  v ; VErr
+)))))))
+(define (ref-surface-typeof (v jsVal)) (VString (ite (is-function (r v)) |str:function| |str:object|)))
+(define (surface-typeof (v jsVal))
+  (ite (is_VUndefined v) (VString |str:undefined|)
+  (ite (is_VNull v) (VString |str:null|)
+  (ite (is_VBool v) (VString |str:boolean|)
+  (ite (is_VString v) (VString |str:string|)
+  (ite (or (is_VNum v) (is_VInt v)) (VString |str:number|)
+  (ite (is_VRef v) (ref-surface-typeof v)
+  v ; VErr
+)))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -325,19 +417,7 @@
 (define (string+ (v1 jsVal) (v2 jsVal))
   (ite (and (is_VString v1) (is_VString v2))
     (VString (string-concat (s v1) (s v2)))
+  (ite (is_VErr v1) v1
+  (ite (is_VErr v2) v2
   (VErr ErrExpectedString)
-))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  Objects
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (is-callable (v jsVal)) (VBool false))
-
-
-(define (get-field (v1 jsVal) (v2 jsVal))
-  (ite (is_VString v2)
-    VUndefined
-  (VErr ErrExpectedString)
-))
+))))

@@ -52,9 +52,6 @@ let eval ~pos v s = match v with
 	    |> xeval fine_ljs
 	    |> SState.map_unit SState.Env.pop
     end
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _) -> SState.throw_str ~pos s "eval"
 | SSymb (TStr, _)
 | SSymb (TAny, _) -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
 | _ -> SState.throw_str ~pos s "eval"
@@ -72,6 +69,7 @@ let get_proto ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "get-proto"
+| SSymb (TRef, _)
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "get-proto" v s
 | _ -> SState.throw_str ~pos s "get-proto"
 
@@ -88,6 +86,7 @@ let is_array ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "is-array"
+| SSymb (TRef, _)
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-array" v s
 | _ -> SState.throw_str ~pos s "is-array"
 
@@ -102,6 +101,7 @@ let is_callable ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.res_false s
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TBool "ref-is-callable" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "is-callable" v s
 | _ -> SState.res_false s
 
@@ -109,15 +109,14 @@ let is_extensible ~pos v s = match v with
 | SHeapLabel label ->
     let { attrs ; _ } = SState.Heap.find label s in
     begin match IdMap.find_opt "extensible" attrs with
-    | Some (SConst (CBool _) as c)
-    | Some (SSymb _ as c) -> SState.res_v c s
-    | Some _
-    | None -> SState.res_false s
+    | Some (SConst (CBool _) | SSymb _ as c) -> SState.res_v c s
+    | Some _ | None -> SState.res_false s
     end
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "is-extensible"
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TBool "is-extensible" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-extensible" v s
 | _ -> SState.throw_str ~pos s "is-extensible"
 
@@ -134,6 +133,7 @@ let object_to_string ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "object-to-string, wasn't given object"
+| SSymb (TRef, _)
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "object-to-string" v s
 | _ -> SState.throw_str ~pos s "object-to-string, wasn't given object"
 
@@ -151,6 +151,7 @@ let get_own_property_names ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "own-property-names"
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "own-property-names" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "own-property-names" v s
 | _ -> SState.throw_str ~pos s "own-property-names"
 
@@ -164,6 +165,7 @@ let prevent_extensions ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "prevent-extensions"
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "prevent-extensions" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prevent-extensions" v s
 | _ -> SState.throw_str ~pos s "prevent-extensions"
 
@@ -242,6 +244,7 @@ let surface_typeof ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_str "number" s
 | SSymb (TStr, _) -> SState.res_str "string" s
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TStr "ref-surface-typeof" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "surface-typeof" v s
 | SClosure _ -> SState.throw_str ~pos s "surface-typeof"
 
@@ -275,9 +278,9 @@ let get_property_names ~pos v s = match v with
     | None -> set_opt
     in	
     begin match all_protos_props v with
-    | None -> SState.res_op1 ~typ:TAny "property-names" v s
+    | None -> SState.res_op1 ~typ:TRef "property-names" v s
     | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
-      | None -> SState.res_op1 ~typ:TAny "property-names" v s
+      | None -> SState.res_op1 ~typ:TRef "property-names" v s
       | Some name_set ->
 	  let add_name name (i, m) =
 	    let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (Mk.str name)) m in
@@ -290,6 +293,7 @@ let get_property_names ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _)
 | SSymb (TStr, _) -> SState.throw_str ~pos s "get-property-names"
+| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "property-names" v s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "property-names" v s
 | _ -> SState.throw_str ~pos s "get-property-names"
 
@@ -306,6 +310,7 @@ let symbol_bool = _symbol "symbol_bool" TBool
 let symbol_int = _symbol "symbol_int" TInt
 let symbol_num = _symbol "symbol_num" TNum
 let symbol_string = _symbol "symbol_string" TStr
+let symbol_ref = _symbol "symbol_ref" TRef
 
 let to_int32 ~pos v s = match v with
 | SSymb (TInt, _)
@@ -325,6 +330,7 @@ let typeof ~pos v s = match v with
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_str "number" s
 | SSymb (TStr, _) -> SState.res_str "string" s
+| SSymb (TRef, _) -> SState.res_str "object" s
 | SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "typeof" v s
 
 let err_op1 ~op ~pos _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
@@ -355,6 +361,7 @@ let op1 ~pos op v s =
   | "symbol_int" -> symbol_int
   | "symbol_num" -> symbol_num
   | "symbol_string" -> symbol_string
+  | "symbol_ref" -> symbol_ref
   | "to-int32" -> to_int32
   | "typeof" -> typeof
   | op -> err_op1 ~op
@@ -461,6 +468,8 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
 | (SConst (CNum _) | SSymb (TNum, _)), (SConst (CNum _) | SSymb (TNum, _))
 | (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
     SState.res_op2 ~typ:TBool "=" v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
+    SState.res_op2 ~typ:TBool "stx=" v1 v2 s
 | (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)), (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)) ->
     SState.res_op2 ~typ:TBool "abs=" v1 v2 s
 | (SConst _ | SSymb _), (SConst _ | SSymb _) ->
@@ -497,8 +506,9 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
 | SHeapLabel label, SConst (CString prop) ->
     let { props ; _ } = SState.Heap.find label s in
     SState.res_bool (IdMap.mem prop props) s
-| SHeapLabel _, SSymb (TStr, _) -> SState.res_op2 ~typ:TBool "has-own-property?" v1 v2 s
-| (SHeapLabel _ | SSymb (TAny, _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
+| (SHeapLabel _ | SSymb (TRef, _)), (SConst (CString _) | SSymb (TStr, _)) ->
+    SState.res_op2 ~typ:TBool "has-own-property?" v1 v2 s
+| (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
     SState.res_op2 ~typ:TAny "has-own-property?" v1 v2 s
 | _ -> SState.throw_str ~pos s "has-own-property?"
 
@@ -517,7 +527,7 @@ let has_property ~pos v1 v2 s = match v1, v2 with
       | _ -> SState.res_false s
     in
     has_prop v1
-| (SHeapLabel _ | SSymb (TAny, _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
+| (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
     SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
 | _ -> SState.res_false s
 

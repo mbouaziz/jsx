@@ -17,6 +17,9 @@
   global["symbol_string" = function(s){
     return prim("symbol_string",s)
   }];
+  global["symbol_ref" = function(s){
+    return prim("symbol_ref",s)
+  }];
   global["assume" = function(e){
     return prim("assume",e)
   }];

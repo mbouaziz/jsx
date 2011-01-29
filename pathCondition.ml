@@ -32,6 +32,7 @@ struct
     let sInt = z "int"
     let sNum = z "num"
     let sString = z "string"
+    let sHeapLabel = z "heaplabel"
     let jsVal = z "jsVal"
   end
 
@@ -48,6 +49,7 @@ struct
     let vInt = z "VInt"
     let vNum = z "VNum"
     let vString = z "VString"
+    let vRef = z "VRef"
     let vErr = z "VErr"
     let mk_string = z "mk-string"
 
@@ -185,6 +187,7 @@ struct
   end
 
   let bool_sort = Z3.mk_bool_sort ctx
+  let int_sort = Z3.mk_int_sort ctx
   let real_sort = Z3.mk_real_sort ctx
 
   let mk_true () = Z3.mk_true ctx
@@ -199,6 +202,7 @@ struct
 
   let mk_bv_of_str bv_size s = Z3.mk_numeral ctx s (Z3.mk_bv_sort ctx bv_size)
   let mk_bv_of_int bv_size i = Z3.mk_int ctx i (Z3.mk_bv_sort ctx bv_size)
+  let mk_int_of_int i = Z3.mk_int ctx i int_sort
   let mk_real s =
     let h, l = String.split2 '.' s in
     Z3Env.Helpers.ast_of_decimal ctx h l
@@ -249,6 +253,12 @@ struct
 	   || f_eq fd F.vNum
 	   || f_eq fd F.vString then
 	ast_to_svalue args.(0)
+      else if f_eq fd F.vRef then
+	let ok, heaplabel = Z3.get_numeral_int ctx args.(0) in
+	assert ok;
+	SHeapLabel (HeapLabel.of_int heaplabel)
+      else if f_eq fd F.vErr then
+	failwith "NYI: VErr to svalue"
   (* problem: with macros, we lost all traces of functions *)
       else match Z3.get_decl_kind ctx fd with
       | Z3.OP_TRUE -> SConst (CBool true)
@@ -297,6 +307,7 @@ struct
       let int sid = "sI" ^ (SId.to_string sid)
       let num sid = "sN" ^ (SId.to_string sid)
       let str sid = "sS" ^ (SId.to_string sid)
+      let _ref sid = "sR" ^ (SId.to_string sid)
     end
 
     module IntRepr =
@@ -321,6 +332,12 @@ struct
 	let bi = String.to_big_int (String.left s 16) in
 	let b = SMT.mk_bv_of_str 128 (Big_int.string_of_big_int bi) in
 	SMT.mk_appf F.mk_string [| l ; b |]
+    end
+
+    module RefRepr =
+    struct
+      let sort = S.sHeapLabel
+      let mk heaplabel = SMT.mk_int_of_int (HeapLabel.to_int heaplabel)
     end
 
     let mk_bool = function
@@ -368,12 +385,14 @@ struct
     let sid_int_var sid = SMT.mk_var (Symbols.int sid) IntRepr.sort
     let sid_num_var sid = SMT.mk_var (Symbols.num sid) NumRepr.sort
     let sid_str_var sid = SMT.mk_var (Symbols.str sid) StrRepr.sort
+    let sid_ref_var sid = SMT.mk_var (Symbols._ref sid) RefRepr.sort
 
     let rec of_typed_symb = function
       | TBool, SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
       | TInt, SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
       | TNum, SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
       | TStr, SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
+      | TRef, SId sid -> SMT.mk_appf F.vRef [| sid_ref_var sid |]
       | TAny, SId sid -> sid_var sid
       | _, SOp1 (o, x) -> of_op1 o (of_svalue x)
       | _, SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
@@ -381,9 +400,9 @@ struct
       | _, SApp (v, l) -> of_app (of_svalue v) (List.map of_svalue l)
     and of_svalue = function
       | SConst c -> of_const c
-      | SClosure _ -> assert false (* really shouldn't happen *)
-      | SHeapLabel _ -> assert false (* NYI, don't know what to do now *)
+      | SHeapLabel heaplabel -> SMT.mk_appf F.vRef [| RefRepr.mk heaplabel |]
       | SSymb ts -> of_typed_symb ts
+      | SClosure _ -> assert false (* really shouldn't happen, really?? *)
 
     let mk_to_bool x = SMT.mk_appf F.valToBool [| x |]
     let mk_not_to_bool x = SMT.mk_appf F.notValToBool [| x |]
@@ -409,6 +428,7 @@ struct
     | TInt, SId sid -> StringMap.add (SId.to_string sid) (int sid) m
     | TNum, SId sid -> StringMap.add (SId.to_string sid) (num sid) m
     | TStr, SId sid -> StringMap.add (SId.to_string sid) (str sid) m
+    | TRef, SId sid -> StringMap.add (SId.to_string sid) (_ref sid) m
     | _, SOp1 (_, v) -> of_svalue v m
     | _, SOp2 (_, v1, v2) -> m |> of_svalue v1 |> of_svalue v2
     | _, SOp3 (_, v1, v2, v3) -> m |> of_svalue v1 |> of_svalue v2 |> of_svalue v3

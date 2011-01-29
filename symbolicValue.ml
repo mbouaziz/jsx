@@ -10,6 +10,8 @@ sig
   val empty : state
   val fresh : state -> state * t
   val to_string : t -> string
+  val to_int : t -> int
+  val of_int : int -> t
 end =
 struct
   type t = int
@@ -19,6 +21,8 @@ struct
   let empty = 0
   let fresh s = (s+1), s
   let to_string l = sprintf "l%03d" l
+  let to_int l = l
+  let of_int l = l
 end
 
 module LabMap =
@@ -91,7 +95,7 @@ struct
   let to_string t = sprintf "@%s" t
 end
 
-type ssymb_type = TAny | TBool | TInt | TNum | TStr
+type ssymb_type = TAny | TBool | TInt | TNum | TStr | TRef
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
