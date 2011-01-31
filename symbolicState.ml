@@ -525,12 +525,12 @@ struct
 
     let _assert ~pos v s =
       match PC.add_assertion v s.pc with
-      | None -> err ~pos s "This assertion is surely false!"
-      | Some (L_FALSE, pc) -> res_true { s with pc }
-      | Some (L_TRUE, pc) ->
+      | _, None -> err ~pos s "This assertion is surely false!"
+      | L_FALSE, Some pc -> res_true { s with pc }
+      | L_TRUE, Some pc ->
 	  let s = Output.warning ~pos "This assertion could be false" s in
 	  res_false { s with pc }
-      | Some (L_UNDEF, pc) ->
+      | L_UNDEF, Some pc ->
 	  let s = Output.warning ~pos "This assertion cannot be checked" s in
 	  res_false { s with pc }
 

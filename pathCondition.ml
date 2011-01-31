@@ -168,9 +168,9 @@ struct
     let push () =
       Z3Env._log (lazy "(push)\n");
       Z3.push ctx
-    let pop () =
-      Z3Env._log (lazy "(pop)\n");
-      Z3.pop ctx 1
+    let pop ?(n=1) () =
+      Z3Env._log (lazy (sprintf "(pop %d)\n" n));
+      Z3.pop ctx n
     let assert_cnstr ast =
       Z3Env._log (lazy (sprintf "(assert\n  %s)\n" (String.interline "  " (Z3.ast_to_string ctx ast))));
       Z3.assert_cnstr ctx ast
@@ -291,8 +291,11 @@ sig
     val svalue : ('t, 's) SymbolicValue._svalue -> ('t, 's) SymbolicValue._svalue
   end
 
+  val assert_pathcomponent : ('t, 's) pathcomponent -> unit
   val check_sat : ('t, 's) pathcomponent list -> lbool
   val check_sat_model : ('t, 's) pathcomponent list -> lbool * SMT.model
+  val check_pred_sat : ('t, 's) predicate -> lbool
+  val check_pred_sat_model : ('t, 's) predicate -> lbool * SMT.model
 end =
 struct
   module ToSMT =
@@ -444,19 +447,20 @@ struct
 
   let assert_pathcomponent { pred ; _ } = assert_predicate pred
 
-  let check_sat pcl =
+  let _gen_check ~_check ~_assert _x =
     SMT.Cmd.push ();
-    List.iter assert_pathcomponent pcl;
-    let res = SMT.Cmd.check () in
+    _assert _x;
+    let res = _check () in
     SMT.Cmd.pop ();
     res
 
-  let check_sat_model pcl =
-    SMT.Cmd.push ();
-    List.iter assert_pathcomponent pcl;
-    let res, m = SMT.Cmd.check_and_get_model () in
-    SMT.Cmd.pop ();
-    res, m
+  let _check ~_assert _x = _gen_check ~_check:SMT.Cmd.check ~_assert _x
+  let _check_model ~_assert _x = _gen_check ~_check:SMT.Cmd.check_and_get_model ~_assert _x
+
+  let check_pred_sat pred = _check ~_assert:assert_predicate pred
+  let check_sat pcl = _check ~_assert:(List.iter assert_pathcomponent) pcl
+  let check_pred_sat_model pred = _check_model ~_assert:assert_predicate pred
+  let check_sat_model pcl = _check_model ~_assert:(List.iter assert_pathcomponent) pcl
 
   module Simplify =
   struct
@@ -544,48 +548,74 @@ struct
     if !Options.opt_model then let sat, model = VC.check_sat_model pcl in sat, Some model
     else let sat = VC.check_sat pcl in sat, None
 
-  let add ?(pred_kind=PPath) p pc =
-    match simplify_add p pc with
+  let check_pred_sat_model_opt pred =
+    if !Options.opt_model then let sat, model = VC.check_pred_sat_model pred in sat, Some model
+    else let sat = VC.check_pred_sat pred in sat, None
+
+  let smt_add_pred ?(pred_kind=PPath) pred pc =
+    let sat, model = check_pred_sat_model_opt pred in
+    if sat = L_FALSE then
+      None
+    else
+      let big_and = { pred ; pred_kind }::pc.big_and in
+      Some { big_and; sat; smt = true; model }
+
+  let nosmt_add_pred ?(pred_kind=PPath) pred pc =
+    let big_and = { pred ; pred_kind }::pc.big_and in
+    Some { big_and; sat = L_UNDEF; smt = false; model = None }
+
+  let add ?(pred_kind=PPath) pred pc =
+    match simplify_add pred pc with
     | Some pc_opt -> pc_opt
     | None ->
-	let pcl = { pred = p; pred_kind }::pc.big_and in
 	if !Options.opt_smt then begin
 	  (* use the SMT solver to check the satisfiability *)
-	  let sat, model_opt = check_sat_model_opt pcl in
+	  let big_and = { pred; pred_kind }::pc.big_and in
+	  let sat, model_opt = check_sat_model_opt big_and in
 	  if sat = L_FALSE then None
-	  else Some { big_and = pcl; sat; smt = true; model = model_opt }
+	  else Some { big_and; sat; smt = true; model = model_opt }
 	end else
-	  Some { big_and = pcl; sat = L_UNDEF; smt = false; model = None }
+	  nosmt_add_pred ~pred_kind pred pc
 
   let add_assumption v pc = add ~pred_kind:PAssume (PredVal v) pc
 
   (* add_assertion returns
-     None if the assertion is surely false
-     Some (L_FALSE, pc) if the assertion is surely true (pc unchanged)
-     Some (L_UNDEF, pc) if the assertion cannot be checked (assumption added to pc)
-     Some (L_TRUE, pc) if the assertion can be true (assumption added to pc)
+     (_, None) if the assertion is surely false
+     (L_FALSE, Some pc) if the assertion is surely true (pc unchanged)
+     (L_UNDEF, Some pc) if the assertion cannot be checked (assumption added to pc)
+     (L_TRUE, Some pc) if the assertion can be true (assumption added to pc)
   *)
   let add_assertion v pc =
     match simplify_add (PredVal v) pc with
-    | Some None -> None
-    | Some (Some pc) -> Some (L_FALSE, pc)
+    | Some pc_opt -> L_FALSE, pc_opt
     | None ->
 	if !Options.opt_smt then begin
 	  (* use the SMT solver to check the validity *)
-	  let pcl_neg = { pred = PredNotVal v; pred_kind = PAssert }::pc.big_and in
-	  let unsat = VC.check_sat pcl_neg in
-	  if unsat = L_FALSE then
-	    Some (L_FALSE, pc)
-	  else
-	    let pcl = { pred = PredVal v; pred_kind = PAssert }::pc.big_and in
-	    let sat, model_opt = check_sat_model_opt pcl in
-	    if sat = L_FALSE then None
-	    else Some (unsat, { big_and = pcl; sat; smt = true; model = model_opt })
+	  SMT.Cmd.push ();
+	  List.iter VC.assert_pathcomponent pc.big_and;
+	  let unsat = VC.check_pred_sat (PredNotVal v) in
+	  let pc_opt =
+	    if unsat = L_FALSE then Some pc
+	    else smt_add_pred ~pred_kind:PAssert (PredVal v) pc
+	  in
+	  SMT.Cmd.pop ();
+	  unsat, pc_opt
 	end else
-	  let pcl = { pred = PredVal v; pred_kind = PAssert }::pc.big_and in
-	  Some (L_UNDEF, { big_and = pcl; sat = L_UNDEF; smt = false; model = None })
+	  L_UNDEF, nosmt_add_pred ~pred_kind:PAssert (PredVal v) pc
 
-  let branch v pc = add (PredVal v) pc, add (PredNotVal v) pc (* TODO: do better *)
+  let branch v pc =
+    match simplify_add (PredVal v) pc with
+    | Some None -> None, (Some pc)
+    | Some (Some pc) -> (Some pc), None
+    | None ->
+	if !Options.opt_smt then begin
+	  SMT.Cmd.push ();
+	  List.iter VC.assert_pathcomponent pc.big_and;
+	  let res = smt_add_pred (PredVal v) pc, smt_add_pred (PredNotVal v) pc in
+	  SMT.Cmd.pop ();
+	  res
+	end else
+	  nosmt_add_pred (PredVal v) pc, nosmt_add_pred (PredNotVal v) pc
 end
 
 module ToString =
