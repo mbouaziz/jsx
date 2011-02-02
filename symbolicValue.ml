@@ -112,7 +112,16 @@ and ('t, 's) _ssymb =
   | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
   | SApp of ('t, 's) _svalue * ('t, 's) _svalue list
 
-type 'a sobj = { attrs : 'a IdMap.t ; props : ('a LambdaJS.Syntax.AttrMap.t) IdMap.t }
+type 'a prop = {
+  value : 'a option;
+  getter : sheaplabel option;
+  setter : sheaplabel option;
+  writable : bool;
+  config : bool;
+  enum : bool;
+}
+
+type 'a sobj = { attrs : 'a IdMap.t ; props : 'a prop IdMap.t }
 
 
 module Mk =
@@ -131,4 +140,11 @@ struct
   let sop3 ?(typ=TAny) o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
   let sapp ?(typ=TAny) v vl = SSymb (typ, SApp(v, vl))
   let sid ~typ id = SSymb (typ, SId id)
+
+  let empty_prop =
+    { value = None; getter = None; setter = None;
+      writable = false; config = false; enum = false }
+  let data_prop ?(b=false) v =
+    { value = Some v; getter = None; setter = None;
+      writable = b; config = b; enum = b }
 end

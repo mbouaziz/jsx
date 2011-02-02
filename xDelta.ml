@@ -142,7 +142,7 @@ let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let { props ; _ } = SState.Heap.find label s in
     let add_name name _ (i, m) =
-      let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (Mk.str name)) m in
+      let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
       i + 1, m
     in
     let _, props = IdMap.fold add_name props (0, IdMap.empty) in
@@ -267,12 +267,8 @@ let get_property_names ~pos v s = match v with
     let rec collect_names set_opt props = match set_opt with
     | Some _ ->
 	let add_prop k v set_opt = match set_opt with
-	| None -> set_opt
-	| Some set -> match AttrMap.find_opt Enum v with
-	  | Some (SSymb _) -> None (* here we should add a conditional fork *)
-	  | Some (SConst (CBool true)) -> Some (IdSet.add k set)
-	  | None
-	  | Some _ -> set_opt
+	| Some set when v.enum -> Some (IdSet.add k set)
+	| _ -> set_opt
 	in
 	IdMap.fold add_prop props set_opt
     | None -> set_opt
@@ -283,7 +279,7 @@ let get_property_names ~pos v s = match v with
       | None -> SState.res_op1 ~typ:TRef "property-names" v s
       | Some name_set ->
 	  let add_name name (i, m) =
-	    let m = IdMap.add (string_of_int i) (AttrMap.singleton Value (Mk.str name)) m in
+	    let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
 	    i + 1, m
 	  in
 	  let _, props = IdSet.fold add_name name_set (0, IdMap.empty) in

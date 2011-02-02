@@ -1,5 +1,5 @@
 
-open LambdaJS.Prelude
+(* open LambdaJS.Prelude *)
 open MyPervasives
 open JS.Syntax
 open LambdaJS.Syntax
@@ -34,24 +34,22 @@ let rec get_field ~pos obj1 obj2 field args s =
   | SHeapLabel label ->
       let { attrs ; props } = SState.Heap.find label s in
       begin match IdMap.find_opt field props with
-      | Some prop_attrs ->
-	  begin match AttrMap.find_opt Value prop_attrs with
+      | Some prop ->
+	  begin match prop.value with
 	  | Some value -> SState.res_v value s
 	  | None ->
-	      begin match AttrMap.find_opt Getter prop_attrs with
+	      match prop.getter with
 	      | Some getter ->
-		  let apply_getter rv s = apply_obj ~pos getter obj2 rv s in
+		  let apply_getter rv s = apply_obj ~pos (SHeapLabel getter) obj2 rv s in
 		  s
-	          |> apply ~pos args [getter]
+	          |> apply ~pos args [SHeapLabel getter]
 		  |> SState.map (SState.do_no_exn apply_getter)
 	      | None -> SState.res_undef s
-	      end
 	  end
       | None ->
-	  begin match IdMap.find_opt "proto" attrs with
+	  match IdMap.find_opt "proto" attrs with
 	  | Some proto -> get_field ~pos proto obj2 field args s
 	  | None -> SState.res_undef s
-	  end
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] get_field received (or reached) a non-object. The expression was (get-field %s %s %s)" (ToString.svalue s obj1) (ToString.svalue s obj2) field)
 
@@ -61,15 +59,11 @@ let add_field ~pos obj field newval s =
   | SHeapLabel label ->
       let { attrs ; props } = SState.Heap.find label s in
       if IdMap.mem_binding "extensible" Mk.strue attrs then
-	let a = [Value, newval; Config, Mk.strue; Writable, Mk.strue; Enum, Mk.strue ] in
-	let o = { attrs ; props = IdMap.add field (AttrMap.from_list a) props } in
+	let o = { attrs ; props = IdMap.add field (Mk.data_prop ~b:true newval) props } in
 	s |> SState.Heap.add label o |>	SState.res_v newval
       else
 	SState.res_undef s
   | _ -> SState.err ~pos s "Error [xeval] add_field given non-object"
-
-
-let writable prop = AttrMap.mem_binding Writable Mk.strue prop
 
 
 let rec update_field ~pos obj1 obj2 field newval args s =
@@ -79,18 +73,18 @@ let rec update_field ~pos obj1 obj2 field newval args s =
       let { attrs ; props } = SState.Heap.find label s in
       begin match IdMap.find_opt field props with
       | Some prop ->
-	  if writable prop then
+	  if prop.writable then
 	    if obj1 = obj2 then
-	      let o = { attrs ; props = IdMap.add field (AttrMap.add Value newval prop) props } in
+	      let o = { attrs ; props = IdMap.add field { prop with value = Some newval } props } in
 	      s |> SState.Heap.add label o |> SState.res_v newval
 	    else
 	      add_field ~pos obj2 field newval s
 	  else
-	    begin match AttrMap.find_opt Setter prop with
+	    begin match prop.setter with
 	    | Some setter ->
-		let apply_setter rv s = apply_obj ~pos setter obj2 rv s in
+		let apply_setter rv s = apply_obj ~pos (SHeapLabel setter) obj2 rv s in
 		s
-	        |> apply ~pos args [setter]
+	        |> apply ~pos args [SHeapLabel setter]
 		|> SState.map (SState.do_no_exn apply_setter)
 	    | None -> SState.res_undef s (* What should be return here ?? *) (* SState.err ~pos s "Fail [xeval] Field not writable!" *)
 	    end
@@ -109,42 +103,61 @@ let get_attr ~pos attr obj field s =
       let { attrs ; props } = SState.Heap.find label s in
       begin match IdMap.find_opt f props with
       | Some prop ->
-	  begin match AttrMap.find_opt attr prop with
-	  | Some a -> SState.res_v a s
-	  | None -> SState.res_undef s
+	  begin match attr with
+	  | Value -> (match prop.value with Some v -> SState.res_v v s | None -> SState.res_undef s)
+	  | Getter -> (match prop.getter with Some l -> SState.res_heaplabel l s | None -> SState.res_undef s)
+	  | Setter -> (match prop.setter with Some l -> SState.res_heaplabel l s | None -> SState.res_undef s)
+	  | Writable -> SState.res_bool prop.writable s
+	  | Config -> SState.res_bool prop.config s
+	  | Enum -> SState.res_bool prop.enum s
 	  end
       | None -> SState.res_undef s
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
 
-let attr_or_false ~pos attr prop =
-  match AttrMap.find_opt attr prop with
-  | Some (SConst (CBool b)) -> b
-  | Some _ -> failwith (sprintf "%s\nBad Error [xeval] Writable or Configurable wasn't a boolean" (pretty_position pos))
-  | None -> false
+let to_acc prop = { prop with value = None; writable = false }
 
 
-let to_acc = AttrMap.remove Value @> AttrMap.remove Writable
+let to_data prop = match prop.value with
+| Some v -> { prop with setter = None; getter = None }
+| None -> { prop with value = Some (SConst CUndefined); setter = None; getter = None }
 
 
-let to_data = AttrMap.remove Setter @> AttrMap.remove Getter
+let is_data prop = prop.value <> None
 
 
-let is_data prop =
-  AttrMap.mem Writable prop || AttrMap.mem Value prop &&
-    not (AttrMap.mem Setter prop || AttrMap.mem Getter prop)
-
-
-let fun_obj s = function (* TODO: using attrs named props in es5_eval.ml *)
-  | SHeapLabel label ->
-      let { attrs ; _ } = SState.Heap.find label s in
-      begin match IdMap.find_opt "code" attrs with
-      | Some (SClosure _) -> true
-      | _ -> false
-      end
-  | SConst CUndefined -> true
+let fun_obj s label = (* TODO: using attrs named props in es5_eval.ml *)
+  let { attrs ; _ } = SState.Heap.find label s in
+  match IdMap.find_opt "code" attrs with
+  | Some (SClosure _) -> true
   | _ -> false
+
+
+let prop_add_attr prop attr newval ~config ~writable s =
+  match attr, newval with
+  | Enum, SConst (CBool b) when config -> { prop with enum = b }
+  | Enum, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Enum>"
+  | Config, SConst (CBool b) when config -> { prop with config = b }
+  | Config, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Config>"
+  | Writable, SConst (CBool b) when config -> { prop with writable = b }
+  | Writable, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Writable>"
+  | Writable, SConst (CBool false) when writable && is_data prop -> { prop with writable = false }
+  | Writable, SSymb ((TBool | TAny), _) when writable -> failwith "Symbolic value for set_attr<Writable>"
+  | Value, v when writable -> { (to_data prop) with value = Some v }
+  | Setter, SHeapLabel l when config && fun_obj s l -> { (to_acc prop) with setter = Some l }
+  | Setter, SConst CUndefined when config -> { (to_acc prop) with setter = None }
+  | Setter, SSymb ((TRef | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Setter>"
+  | Getter, SHeapLabel l when config && fun_obj s l -> { (to_acc prop) with getter = Some l }
+  | Getter, SConst CUndefined when config -> { (to_acc prop) with getter = None }
+  | Getter, SSymb ((TRef | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Getter>"
+  | _ -> prop
+
+
+let prop_add_attr_opt prop attr newval_opt ~config ~writable s =
+  match newval_opt with
+  | Some newval -> prop_add_attr prop attr newval ~config ~writable s
+  | None -> prop
 
 
 let set_attr ~pos attr obj field newval s =
@@ -153,32 +166,13 @@ let set_attr ~pos attr obj field newval s =
       let { attrs ; props } = SState.Heap.find label s in
       begin match IdMap.find_opt f props with
       | Some prop ->
-	  let config = attr_or_false ~pos Config prop in
-	  let writable = attr_or_false ~pos Writable prop in
-	  let new_prop = match attr, newval, config, writable with
-	  | Enum, SConst (CBool _), true, _
-	  | Enum, SSymb _, true, _ -> AttrMap.add Enum newval prop
-	  | Config, SConst (CBool _), true, _
-	  | Config, SSymb _, true, _ -> AttrMap.add Config newval prop
-	  | Writable, SConst (CBool _), true, _
-	  | Writable, SSymb _, true, _ -> AttrMap.add Writable newval (to_data prop)
-	  | Writable, SConst (CBool false), _, true
-	  | Writable, SSymb _, _, true when is_data prop -> AttrMap.add Writable newval prop
-	  | Writable, SConst (CBool false), _, true
-	  | Writable, SSymb _, _, true -> prop
-	  | Value, v, _, true -> AttrMap.add Value v (to_data prop)
-	  | Setter, v, true, _ when fun_obj s v -> AttrMap.add Setter newval (to_acc prop)
-	  | Setter, _, true, _ -> prop
-	  | Getter, v, true, _ when fun_obj s v -> AttrMap.add Getter newval (to_acc prop)
-	  | Getter, _, true, _ -> prop
-	  | _ -> prop (* failwith (sprintf "%s\nWTF [xeval] set-attr don't know what to do with other values" (pretty_position pos)) *)
-	  in
+	  let new_prop = prop_add_attr prop attr newval ~config:prop.config ~writable:prop.writable s in
 	  let o = { attrs ; props = IdMap.add f new_prop props } in
 	  s |> SState.Heap.add label o |> SState.res_v newval
       | None ->
 	  begin match IdMap.find_opt "extensible" attrs with
 	  | Some (SConst (CBool true)) ->
-	      let new_prop = AttrMap.singleton attr newval in
+	      let new_prop = prop_add_attr Mk.empty_prop attr newval ~config:true ~writable:true s in
 	      let o = { attrs ; props = IdMap.add f new_prop props } in
 	      s |> SState.Heap.add label o |> SState.res_v newval
 	  | Some _ -> SState.err ~pos s "Error [xeval] Extensible not true on object to extend with an attr"
@@ -215,18 +209,18 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	in
 	SState.map_res unit_xeval_obj_attr sl
       in
-      let xeval_prop_attr (name, e) sl =
-	let unit_xeval_prop_attr attrmap s =
+      let xeval_prop_attr (attr, e) sl =
+	let unit_xeval_prop_attr prop s =
 	  s
           |> xeval e
-	  |> SState.map_res_unit (fun x s -> SState.res (AttrMap.add_opt name (value_opt x) attrmap) s)
+	  |> SState.map_res_unit (fun x s -> SState.res (prop_add_attr_opt prop attr (value_opt x) ~config:true ~writable:true s) s)
 	in
 	SState.map_res unit_xeval_prop_attr sl
       in
       let xeval_prop (name, attrs) sl =
 	let unit_xeval_prop obj s =
 	  s
-          |> SState.res AttrMap.empty
+          |> SState.res Mk.empty_prop
 	  |> SState.singleton
           |> List.fold_leftr xeval_prop_attr attrs
 	  |> SState.map_res_unit (fun x s -> SState.res { obj with props = IdMap.add name x obj.props } s)

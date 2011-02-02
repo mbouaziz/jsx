@@ -102,6 +102,7 @@ sig
   val res_int : int -> 'a t -> set
   val res_num : float -> 'a t -> set
   val res_str : string -> 'a t -> set
+  val res_heaplabel : sheaplabel -> 'a t -> set
   val res_heap_add : sheaplabel -> svalue sobj -> 'a t -> set
   val res_heap_add_fresh : svalue sobj -> 'a t -> set
   val res_id : typ:SymbolicValue.ssymb_type -> sid -> 'a t -> set
@@ -218,9 +219,11 @@ struct
 	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
 	| SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
 	| SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
-      and aux_obj { attrs ; props } = IdMap.fold aux_map1 attrs @> IdMap.fold aux_map2 props
+      and aux_obj { attrs ; props } = IdMap.fold aux_map1 attrs @> IdMap.fold aux_prop props
       and aux_map1 : 'a. 'a -> _ = fun _ -> aux
-      and aux_map2 _ am = LambdaJS.Syntax.AttrMap.fold aux_map1 am
+      and aux_prop _ prop = aux_optv prop.value @> aux_opt prop.getter @> aux_opt prop.setter
+      and aux_optv = function Some v -> aux v | None -> (fun x -> x)
+      and aux_opt = function Some l -> LabelSet.add l | None -> (fun x -> x)
       in
       List.fold_right aux vl labs
 
@@ -264,12 +267,12 @@ struct
 	sprintf "%s: %s" (LambdaJS.Syntax.string_of_attr attr) (svalue ~simplify s v)
       in
       attrs |> LambdaJS.Syntax.AttrMap.bindings |> List.map unit_attr |> String.concat ",\n"
-    and spropattr_value ~simplify s sattrs = match LambdaJS.Syntax.AttrMap.find_opt LambdaJS.Syntax.Value sattrs with
+    and spropattr_value ~simplify s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue ~simplify s v)
     and sprops ~simplify s props =
-      let unit_prop (prop_id, attrs) =
-	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s attrs)
+      let unit_prop (prop_id, prop) =
+	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s prop)
 	  (* sprintf "%s: {%s}" prop_id (spropattrs ~sep:"\n" ~simplify s attrs) *)
       in
       props |> IdMap.bindings |> List.map unit_prop |> String.concat ",\n"
@@ -472,6 +475,7 @@ struct
   let res_int i s = res_v (Mk.int i) s
   let res_num n s = res_v (Mk.num n) s
   let res_str x s = res_v (Mk.str x) s
+  let res_heaplabel l s = res_v (SHeapLabel l) s
   let res_heap_add l obj s = res_v (SHeapLabel l) (Heap.add l obj s)
   let res_heap_add_fresh obj s =
     let s, l = Heap.add_fresh obj s in res_v (SHeapLabel l) s
