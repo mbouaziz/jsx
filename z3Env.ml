@@ -22,7 +22,10 @@ let empty_env ctx = {
   funs = StringMmap.empty ;
 }
 
-let env_filename = "env.smt2"
+let env_filename = "env.smt2" |>
+  Filename.concat Filename.parent_dir_name |>
+  Filename.concat (Filename.dirname Sys.executable_name)
+
 
 let _log lazy_v = match !Options.OtherOptions.opt_smt_log with
 | None -> ()
