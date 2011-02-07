@@ -60,9 +60,9 @@ let fail ~pos v s = SState.res_false s (* no such thing in my implementation *)
 
 let get_proto ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    begin match IdMap.find_opt "proto" attrs with
-    | Some proto -> SState.res_v proto s
+    let { proto ; _ } = SState.Heap.find label s in
+    begin match proto with
+    | Some proto -> SState.res_heaplabel proto s
     | None -> SState.res_undef s
     end
 | SSymb (TBool, _)
@@ -75,13 +75,8 @@ let get_proto ~pos v s = match v with
 
 let is_array ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    begin match IdMap.find_opt "class" attrs with
-    | Some (SConst (CString "Array")) -> SState.res_true s
-    | Some (SSymb _ as c) -> SState.res_op2 ~typ:TBool "stx=" (SConst (CString "Array")) c s
-    | Some _ -> SState.res_false s
-    | None -> SState.throw_str ~pos s "is-array"
-    end
+    let { _class ; _ } = SState.Heap.find label s in
+    SState.res_bool (_class = "Array") s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -92,11 +87,8 @@ let is_array ~pos v s = match v with
 
 let is_callable ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    begin match IdMap.find_opt "code" attrs with
-    | Some (SClosure _) -> SState.res_true s
-    | _ -> SState.res_false s
-    end
+    let { code ; _ } = SState.Heap.find label s in
+    SState.res_bool (code <> None) s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -107,11 +99,8 @@ let is_callable ~pos v s = match v with
 
 let is_extensible ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    begin match IdMap.find_opt "extensible" attrs with
-    | Some (SConst (CBool _) | SSymb _ as c) -> SState.res_v c s
-    | Some _ | None -> SState.res_false s
-    end
+    let { extensible ; _ } = SState.Heap.find label s in
+    SState.res_bool extensible s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -122,13 +111,8 @@ let is_extensible ~pos v s = match v with
 
 let object_to_string ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    begin match IdMap.find_opt "class" attrs with
-    | Some (SConst (CString x)) -> SState.res_str (sprintf "[object %s]" x) s
-    | Some (SSymb _ as v) -> SState.res_op2 ~typ:TAny "string+" (Mk.str "[object ") (Mk.sop2 "string+" v (Mk.str "]")) s
-    | Some _ -> SState.throw_str ~pos s "object-to-string, class wasn't a string"
-    | None -> SState.throw_str ~pos s "object-to-string, didn't find class"
-    end
+    let { _class ; _ } = SState.Heap.find label s in
+    SState.res_str (sprintf "[object %s]" _class) s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -146,7 +130,7 @@ let get_own_property_names ~pos v s = match v with
       i + 1, m
     in
     let _, props = IdMap.fold add_name props (0, IdMap.empty) in
-    SState.res_heap_add_fresh { props ; attrs = IdMap.empty } s
+    SState.res_heap_add_fresh (Mk.obj props) s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -157,9 +141,8 @@ let get_own_property_names ~pos v s = match v with
 
 let prevent_extensions ~pos v s = match v with
 | SHeapLabel label ->
-    let { attrs ; _ } as o = SState.Heap.find label s in
-    let o = { o with attrs = IdMap.add "extensible" Mk.sfalse attrs } in
-    let s = SState.Heap.add label o s in
+    let o = SState.Heap.find label s in
+    let s = SState.Heap.add label { o with extensible = false } s in
     SState.res_v v s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
@@ -238,8 +221,8 @@ let print ~pos v s = s |> SState.Output.print v |> SState.singleton
 let surface_typeof ~pos v s = match v with
 | SConst c -> const_typeof ~fname:"surface-typeof" ~pos c s
 | SHeapLabel label ->
-    let { attrs ; _ } = SState.Heap.find label s in
-    SState.res_str (if IdMap.mem "code" attrs then "function" else "object") s
+    let { code ; _ } = SState.Heap.find label s in
+    SState.res_str (if code = None then "object" else "function") s
 | SSymb (TBool, _) -> SState.res_str "boolean" s
 | SSymb (TInt, _)
 | SSymb (TNum, _) -> SState.res_str "number" s
@@ -249,20 +232,16 @@ let surface_typeof ~pos v s = match v with
 | SClosure _ -> SState.throw_str ~pos s "surface-typeof"
 
 let get_property_names ~pos v s = match v with
-| SHeapLabel _ ->
-    let rec all_protos_props = function (* Return None if there is a symbolic value that can contribute to the protos *)
-      | SHeapLabel label ->
-	  let { attrs ; props } = SState.Heap.find label s in
-	  begin match IdMap.find_opt "proto" attrs with
-	  | Some proto ->
-	      begin match all_protos_props proto with
-	      | Some l -> Some (props::l)
-	      | None -> None
-	      end
-	  | None -> Some [props]
+| SHeapLabel label ->
+    let rec all_protos_props label = (* Return None if there is a symbolic value that can contribute to the protos ; So far : not possible but may become possible if symbolic prototypes are allowed *)
+      let { props ; proto ; _ } = SState.Heap.find label s in
+      match proto with
+      | Some lab ->
+	  begin match all_protos_props lab with
+	  | Some l -> Some (props::l)
+	  | None -> None
 	  end
-      | SSymb _ -> None
-      | _ -> Some []
+      | None -> Some [props]
     in
     let rec collect_names set_opt props = match set_opt with
     | Some _ ->
@@ -273,7 +252,7 @@ let get_property_names ~pos v s = match v with
 	IdMap.fold add_prop props set_opt
     | None -> set_opt
     in	
-    begin match all_protos_props v with
+    begin match all_protos_props label with
     | None -> SState.res_op1 ~typ:TRef "property-names" v s
     | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
       | None -> SState.res_op1 ~typ:TRef "property-names" v s
@@ -283,7 +262,7 @@ let get_property_names ~pos v s = match v with
 	    i + 1, m
 	  in
 	  let _, props = IdSet.fold add_name name_set (0, IdMap.empty) in
-	  SState.res_heap_add_fresh { props ; attrs = IdMap.empty } s
+	  SState.res_heap_add_fresh (Mk.obj props) s
     end
 | SSymb (TBool, _)
 | SSymb (TInt, _)
@@ -509,20 +488,17 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
 | _ -> SState.throw_str ~pos s "has-own-property?"
 
 let has_property ~pos v1 v2 s = match v1, v2 with
-| SHeapLabel _, SConst (CString prop) ->
-    let rec has_prop = function
-      | SHeapLabel label ->
-	  let { attrs ; props } = SState.Heap.find label s in
-	  if IdMap.mem prop props then
-	    SState.res_true s
-	  else begin match IdMap.find_opt "proto" attrs with
-	  | None -> SState.res_false s
-	  | Some proto -> has_prop proto
-	  end
-      | SSymb _ -> SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
-      | _ -> SState.res_false s
+| SHeapLabel label, SConst (CString prop) ->
+    let rec has_prop label =
+      let { props; proto; _ } = SState.Heap.find label s in
+      if IdMap.mem prop props then
+	SState.res_true s
+      else begin match proto with
+      | None -> SState.res_false s
+      | Some lab -> has_prop lab
+      end
     in
-    has_prop v1
+    has_prop label
 | (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
     SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
 | _ -> SState.res_false s

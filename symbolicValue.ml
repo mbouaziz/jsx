@@ -100,9 +100,11 @@ type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
 
-type ('t, 's) _svalue = (* 't is a state, 's is a state set *)
+(* 't is a state, 's is a state set *)
+type ('t, 's) _closure = ('t, 's) _svalue list -> 't -> 's
+and ('t, 's) _svalue =
   | SConst of sconst
-  | SClosure of (('t, 's) _svalue list -> 't -> 's)
+  | SClosure of ('t, 's) _closure
   | SHeapLabel of sheaplabel
   | SSymb of (ssymb_type * ('t, 's) _ssymb)
 and ('t, 's) _ssymb =
@@ -121,7 +123,14 @@ type 'a prop = {
   enum : bool;
 }
 
-type 'a sobj = { attrs : 'a IdMap.t ; props : 'a prop IdMap.t }
+(* 'v is a svalue, 'c is a closure *)
+type ('v, 'c) sobj = {
+  props : 'v prop IdMap.t;
+  proto : sheaplabel option;
+  _class : string;
+  extensible : bool;
+  code : 'c option;
+}
 
 
 module Mk =
@@ -140,6 +149,11 @@ struct
   let sop3 ?(typ=TAny) o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
   let sapp ?(typ=TAny) v vl = SSymb (typ, SApp(v, vl))
   let sid ~typ id = SSymb (typ, SId id)
+
+  let obj props =
+    { props; proto = None; _class = "Object";
+      extensible = false; code = None }
+  let empty_obj = obj IdMap.empty
 
   let empty_prop =
     { value = None; getter = None; setter = None;

@@ -63,6 +63,7 @@ sig
   type set = srvalue _set
   and svalue = (unit t, set) _svalue
   and srvalue = (svalue, svalue sexn) rvalue
+  type sclosure = (unit t, set) _closure
   type s = srvalue t
   type envlabel
   type env
@@ -103,8 +104,8 @@ sig
   val res_num : float -> 'a t -> set
   val res_str : string -> 'a t -> set
   val res_heaplabel : sheaplabel -> 'a t -> set
-  val res_heap_add : sheaplabel -> svalue sobj -> 'a t -> set
-  val res_heap_add_fresh : svalue sobj -> 'a t -> set
+  val res_heap_add : sheaplabel -> (svalue, sclosure) sobj -> 'a t -> set
+  val res_heap_add_fresh : (svalue, sclosure) sobj -> 'a t -> set
   val res_id : typ:SymbolicValue.ssymb_type -> sid -> 'a t -> set
   val res_op1 : typ:SymbolicValue.ssymb_type -> string -> svalue -> 'a t -> set
   val res_op2 : typ:SymbolicValue.ssymb_type -> string -> svalue -> svalue -> 'a t -> set
@@ -152,8 +153,8 @@ sig
   end
   module Heap :
   sig
-    val add : sheaplabel -> svalue sobj -> 'a t -> 'a t
-    val find : sheaplabel -> 'a t -> svalue sobj
+    val add : sheaplabel -> (svalue, sclosure) sobj -> 'a t -> 'a t
+    val find : sheaplabel -> 'a t -> (svalue, sclosure) sobj
   end
   module Output :
   sig
@@ -172,7 +173,7 @@ struct
   module SHeap = LabMap.Make(HeapLabel)
   module EnvLabel = HeapLabel
   module EnvVals = LabMap.Make(EnvLabel)
-  type 'a sheap = 'a sobj SHeap.t
+  type ('v, 'c) sheap = ('v, 'c) sobj SHeap.t
   type 'a envvals = 'a EnvVals.t
   type envlabel = EnvLabel.t
   type env = envlabel IdMmap.t
@@ -183,9 +184,10 @@ struct
   type 'a call = { call_pos : pos ; call_env : env ; call_args : 'a list }
   and 'a callstack = 'a call list
   and 'a sexn = ('a, 'a callstack) _sexn
-  and ('a, 'b) state = { pc : 'a PathCondition._pathcondition ; env : env ; env_stack : env list ; envvals : 'a envvals ; heap : 'a sheap ; res : 'b ; exn : 'a sexn option ; out : 'a SOutput.t ; callstack : 'a callstack }
+  and ('a, 'b) state = { pc : 'a PathCondition._pathcondition ; env : env ; env_stack : env list ; envvals : 'a envvals ; heap : ('a, sclosure) sheap ; res : 'b ; exn : 'a sexn option ; out : 'a SOutput.t ; callstack : 'a callstack }
   and svalue = ((svalue, unit) state, (svalue, srvalue) state __set) _svalue
   and srvalue = (svalue, svalue sexn) rvalue
+  and sclosure = ((svalue, unit) state, (svalue, srvalue) state __set) _closure
 
   type 'b t = (svalue, 'b) state
   type s = srvalue t
@@ -219,8 +221,7 @@ struct
 	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
 	| SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
 	| SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
-      and aux_obj { attrs ; props } = IdMap.fold aux_map1 attrs @> IdMap.fold aux_prop props
-      and aux_map1 : 'a. 'a -> _ = fun _ -> aux
+      and aux_obj { proto ; props ; _ } = aux_opt proto @> IdMap.fold aux_prop props
       and aux_prop _ prop = aux_optv prop.value @> aux_opt prop.getter @> aux_opt prop.setter
       and aux_optv = function Some v -> aux v | None -> (fun x -> x)
       and aux_opt = function Some l -> LabelSet.add l | None -> (fun x -> x)
@@ -252,28 +253,19 @@ struct
 	    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue ~simplify s v1) (svalue ~simplify s v2) (svalue ~simplify s v3)
 	    | SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true ~simplify s v) (String.concat ", " (List.map (svalue ~simplify s) vl))
 
-    and sobj ~simplify s { attrs ; props } =
-      if IdMap.is_empty props then
-	sprintf "{[%s]}" (sattrs ~simplify s attrs)
-      else
-	sprintf "{[%s]\n%s}" (sattrs ~simplify s attrs) (sprops ~simplify s props)
-    and sattrs ~simplify s attrs =
-      let unit_attr (attr, v) =
-	sprintf "%s: %s" attr (svalue ~simplify s v)
-      in
-      attrs |> IdMap.bindings |> List.map unit_attr |> String.concat ", "
-    and spropattrs ?(sep="") ~simplify s attrs =
-      let unit_attr (attr, v) =
-	sprintf "%s: %s" (LambdaJS.Syntax.string_of_attr attr) (svalue ~simplify s v)
-      in
-      attrs |> LambdaJS.Syntax.AttrMap.bindings |> List.map unit_attr |> String.concat ",\n"
+    and sobj ~simplify s obj =
+      let s_proto = sprintf "proto: %s, " (match obj.proto with None -> "null" | Some l -> svalue ~simplify s (SHeapLabel l)) in
+      let s_class = if obj._class = "" then "" else sprintf "class: %S, " obj._class in
+      let s_extensible = sprintf "extensible: %B" obj.extensible in
+      let s_code = match obj.code with None -> "" | Some _ -> ", code: <function>" in
+      let s_props = if IdMap.is_empty obj.props then "" else "\n" ^ (sprops ~simplify s obj.props) in
+      "{[" ^ s_proto ^ s_class ^ s_extensible ^ s_code ^ "]" ^ s_props ^ "}"
     and spropattr_value ~simplify s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue ~simplify s v)
     and sprops ~simplify s props =
       let unit_prop (prop_id, prop) =
 	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s prop)
-	  (* sprintf "%s: {%s}" prop_id (spropattrs ~sep:"\n" ~simplify s attrs) *)
       in
       props |> IdMap.bindings |> List.map unit_prop |> String.concat ",\n"
 
