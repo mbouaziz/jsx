@@ -104,8 +104,8 @@ sig
   val res_num : float -> 'a t -> set
   val res_str : string -> 'a t -> set
   val res_heaplabel : sheaplabel -> 'a t -> set
-  val res_heap_add : sheaplabel -> (svalue, sclosure) sobj -> 'a t -> set
-  val res_heap_add_fresh : (svalue, sclosure) sobj -> 'a t -> set
+  val res_heap_add : sheaplabel -> svalue props -> sclosure internal_props -> 'a t -> set
+  val res_heap_add_fresh : svalue props * sclosure internal_props -> 'a t -> set
   val res_id : typ:SymbolicValue.ssymb_type -> sid -> 'a t -> set
   val res_op1 : typ:SymbolicValue.ssymb_type -> string -> svalue -> 'a t -> set
   val res_op2 : typ:SymbolicValue.ssymb_type -> string -> svalue -> svalue -> 'a t -> set
@@ -153,8 +153,11 @@ sig
   end
   module Heap :
   sig
-    val add : sheaplabel -> (svalue, sclosure) sobj -> 'a t -> 'a t
-    val find : sheaplabel -> 'a t -> (svalue, sclosure) sobj
+    val update_p : sheaplabel -> svalue props -> 'a t -> 'a t
+    val update_ip : sheaplabel -> sclosure internal_props -> 'a t -> 'a t
+    val add : sheaplabel -> svalue props -> sclosure internal_props -> 'a t -> 'a t
+    val find_p : sheaplabel -> 'a t -> svalue props
+    val find_ip : sheaplabel -> 'a t -> sclosure internal_props
   end
   module Output :
   sig
@@ -170,10 +173,16 @@ end =
 struct
 
   module LabelSet = Set.Make(HeapLabel)
-  module SHeap = LabMap.Make(HeapLabel)
+  module SHeap =
+  struct
+    module P = Map.Make(HeapLabel)
+    module IP = LabMap.Make(HeapLabel)
+    type ('v, 'c) sheap = { p : 'v props P.t; ip : 'c internal_props IP.t }
+    let empty = { p = P.empty; ip = IP.empty }
+  end
   module EnvLabel = HeapLabel
   module EnvVals = LabMap.Make(EnvLabel)
-  type ('v, 'c) sheap = ('v, 'c) sobj SHeap.t
+  type ('v, 'c) sheap = ('v, 'c) SHeap.sheap = { p : 'v props SHeap.P.t; ip : 'c internal_props SHeap.IP.t }
   type 'a envvals = 'a EnvVals.t
   type envlabel = EnvLabel.t
   type env = envlabel IdMmap.t
@@ -213,7 +222,7 @@ struct
     let collect_labels { heap ; _ } vl labs =
       let rec aux v labs = match v with
       | SConst _ -> labs
-      | SHeapLabel l -> labs |> LabelSet.add l |> aux_obj (SHeap.find l heap)
+      | SHeapLabel l -> labs |> LabelSet.add l |> aux_props (SHeap.P.find l heap.p) |> aux_internal_props (SHeap.IP.find l heap.ip)
       | SClosure _ -> labs
       | SSymb (_, symb) -> match symb with
 	| SId _ -> labs
@@ -221,7 +230,8 @@ struct
 	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
 	| SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
 	| SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
-      and aux_obj { proto ; props ; _ } = aux_opt proto @> IdMap.fold aux_prop props
+      and aux_props props = IdMap.fold aux_prop props
+      and aux_internal_props { proto; _ } = aux_opt proto
       and aux_prop _ prop = aux_optv prop.value @> aux_opt prop.getter @> aux_opt prop.setter
       and aux_optv = function Some v -> aux v | None -> (fun x -> x)
       and aux_opt = function Some l -> LabelSet.add l | None -> (fun x -> x)
@@ -233,7 +243,7 @@ struct
       function
 	| SConst c -> const c
 	| SClosure _ -> "function"
-	| SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj ~simplify s (SHeap.find hl s.heap)))
+	| SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj ~simplify s (SHeap.P.find hl s.heap.p) (SHeap.IP.find hl s.heap.ip)))
 	| SHeapLabel hl -> sprintf "heap[%s]" (HeapLabel.to_string hl)
 	| SSymb (_, symb) as v ->
 	    if simplify && !Options.opt_smt then
@@ -253,12 +263,12 @@ struct
 	    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue ~simplify s v1) (svalue ~simplify s v2) (svalue ~simplify s v3)
 	    | SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true ~simplify s v) (String.concat ", " (List.map (svalue ~simplify s) vl))
 
-    and sobj ~simplify s obj =
-      let s_proto = sprintf "proto: %s, " (match obj.proto with None -> "null" | Some l -> svalue ~simplify s (SHeapLabel l)) in
-      let s_class = if obj._class = "" then "" else sprintf "class: %S, " obj._class in
-      let s_extensible = sprintf "extensible: %B" obj.extensible in
-      let s_code = match obj.code with None -> "" | Some _ -> ", code: <function>" in
-      let s_props = if IdMap.is_empty obj.props then "" else "\n" ^ (sprops ~simplify s obj.props) in
+    and sobj ~simplify s props { proto; _class; extensible; code } =
+      let s_proto = sprintf "proto: %s, " (match proto with None -> "null" | Some l -> svalue ~simplify s (SHeapLabel l)) in
+      let s_class = if _class = "" then "" else sprintf "class: %S, " _class in
+      let s_extensible = sprintf "extensible: %B" extensible in
+      let s_code = match code with None -> "" | Some _ -> ", code: <function>" in
+      let s_props = if IdMap.is_empty props then "" else "\n" ^ (sprops ~simplify s props) in
       "{[" ^ s_proto ^ s_class ^ s_extensible ^ s_code ^ "]" ^ s_props ^ "}"
     and spropattr_value ~simplify s prop = match prop.value with
     | None -> "attrs"
@@ -308,12 +318,12 @@ struct
     let env s env = ""
     let callstack s cs = ""
     let heap ?labs s heap =
-      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (sobj ~simplify:false s v))::l in
+      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (sobj ~simplify:false s (SHeap.P.find lab heap.p) v))::l in
       let unit_lab = match labs with
       | None -> add_lab
       | Some labs -> fun lab v l -> if LabelSet.mem lab labs then add_lab lab v l else l
       in
-      SHeap.fold unit_lab heap [] |> String.concat "\n"
+      SHeap.IP.fold unit_lab heap.ip [] |> String.concat "\n"
     let res_rsvalue s rv = ""
     let res_exn s = function
       | Some e -> exn s e
@@ -408,11 +418,17 @@ struct
 
   module Heap =
   struct
-    let add label obj s = { s with heap = SHeap.add label obj s.heap }
-    let add_fresh obj s =
-      let heap, label = SHeap.add_fresh obj s.heap in
-      { s with heap }, label
-    let find label s = SHeap.find label s.heap
+    let update_p label props s =
+      { s with heap = { s.heap with p = SHeap.P.add label props s.heap.p } }
+    let update_ip label internal_props s =
+      { s with heap = { s.heap with ip = SHeap.IP.add label internal_props s.heap.ip } }
+    let add label props internal_props s = { s with heap = { p = SHeap.P.add label props s.heap.p ; ip = SHeap.IP.add label internal_props s.heap.ip } }
+    let add_fresh props internal_props s =
+      let ip, label = SHeap.IP.add_fresh internal_props s.heap.ip in
+      let p = SHeap.P.add label props s.heap.p in
+      { s with heap = { p; ip } }, label
+    let find_p label s = SHeap.P.find label s.heap.p
+    let find_ip label s = SHeap.IP.find label s.heap.ip
   end
 
   module Output =
@@ -468,9 +484,9 @@ struct
   let res_num n s = res_v (Mk.num n) s
   let res_str x s = res_v (Mk.str x) s
   let res_heaplabel l s = res_v (SHeapLabel l) s
-  let res_heap_add l obj s = res_v (SHeapLabel l) (Heap.add l obj s)
-  let res_heap_add_fresh obj s =
-    let s, l = Heap.add_fresh obj s in res_v (SHeapLabel l) s
+  let res_heap_add l props internal_props s = res_v (SHeapLabel l) (Heap.add l props internal_props s)
+  let res_heap_add_fresh (props, internal_props) s =
+    let s, l = Heap.add_fresh props internal_props s in res_v (SHeapLabel l) s
   let res_id ~typ id s = res_v (Mk.sid ~typ id) s
   let res_op1 ~typ o v s = res_v (Mk.sop1 ~typ o v) s
   let res_op2 ~typ o v1 v2 s = res_v (Mk.sop2 ~typ o v1 v2) s

@@ -20,14 +20,14 @@ let apply ~pos func args s =
 
 
 let apply_obj ~pos label this args s =
-  let { code; _ } = SState.Heap.find label s in
+  let { code; _ } = SState.Heap.find_ip label s in
   match code with
   | Some closure -> apply_closure ~pos closure [this; args] s
   | None -> SState.err ~pos s "Fail [xeval] Applying inapplicable object!"
 
 
 let rec concrete_get_field ~pos label obj_this field args s =
-  let { props; proto; _ } = SState.Heap.find label s in
+  let props = SState.Heap.find_p label s in
   match IdMap.find_opt field props with
   | Some prop ->
       begin match prop.value with
@@ -42,28 +42,30 @@ let rec concrete_get_field ~pos label obj_this field args s =
 	  | None -> SState.res_undef s
       end
   | None ->
+      let { proto; _ } = SState.Heap.find_ip label s in
       match proto with
       | Some lab -> concrete_get_field ~pos lab obj_this field args s
       | None -> SState.res_undef s
 
 
 let concrete_add_field ~pos label field newval s =
-  let { props; extensible; _ } as o = SState.Heap.find label s in
+  let { extensible; _ } = SState.Heap.find_ip label s in
   if extensible then
-    let o = { o with props = IdMap.add field (Mk.data_prop ~b:true newval) props } in
-    s |> SState.Heap.add label o |> SState.res_v newval
+    let props = SState.Heap.find_p label s in
+    let props = IdMap.add field (Mk.data_prop ~b:true newval) props in
+    s |> SState.Heap.update_p label props |> SState.res_v newval
   else
     SState.res_undef s
 
 
 let rec concrete_update_field ~pos label label_this field newval args s =
-  let { props; proto; _ } as o = SState.Heap.find label s in
+  let props = SState.Heap.find_p label s in
   match IdMap.find_opt field props with
   | Some prop ->
       if prop.writable then
 	if label = label_this then
-	  let o = { o with props = IdMap.add field { prop with value = Some newval } props } in
-	  s |> SState.Heap.add label o |> SState.res_v newval
+	  let props = IdMap.add field { prop with value = Some newval } props in
+	  s |> SState.Heap.update_p label props |> SState.res_v newval
 	else
 	  concrete_add_field ~pos label_this field newval s
       else
@@ -76,6 +78,7 @@ let rec concrete_update_field ~pos label label_this field newval args s =
 	| None -> SState.res_undef s (* What should be return here ?? *) (* SState.err ~pos s "Fail [xeval] Field not writable!" *)
 	end
   | None ->
+      let { proto; _ } = SState.Heap.find_ip label s in
       match proto with
       | Some label_proto -> concrete_update_field ~pos label_proto label_this field newval args s
       | None -> concrete_add_field ~pos label_this field newval s
@@ -84,7 +87,7 @@ let rec concrete_update_field ~pos label label_this field newval args s =
 let get_attr ~pos attr obj field s =
   match obj, field with
   | SHeapLabel label, SConst (CString f) ->
-      let { props; _ } = SState.Heap.find label s in
+      let props = SState.Heap.find_p label s in
       begin match IdMap.find_opt f props with
       | Some prop ->
 	  begin match attr with
@@ -112,7 +115,7 @@ let is_data prop = prop.value <> None
 
 
 let fun_obj s label =
-  let { code; _ } = SState.Heap.find label s in
+  let { code; _ } = SState.Heap.find_ip label s in
   code <> None
 
 
@@ -145,17 +148,18 @@ let prop_add_attr_opt prop attr newval_opt ~config ~writable s =
 let set_attr ~pos attr obj field newval s =
   match obj, field with
   | SHeapLabel label, SConst (CString f) ->
-      let { props; extensible; _ } as o = SState.Heap.find label s in
+      let props = SState.Heap.find_p label s in
       begin match IdMap.find_opt f props with
       | Some prop ->
 	  let new_prop = prop_add_attr prop attr newval ~config:prop.config ~writable:prop.writable s in
-	  let o = { o with props = IdMap.add f new_prop props } in
-	  s |> SState.Heap.add label o |> SState.res_v newval
+	  let props = IdMap.add f new_prop props in
+	  s |> SState.Heap.update_p label props |> SState.res_v newval
       | None ->
+	  let { extensible; _ } = SState.Heap.find_ip label s in
 	  if extensible then
 	    let new_prop = prop_add_attr Mk.empty_prop attr newval ~config:true ~writable:true s in
-	    let o = { o with props = IdMap.add f new_prop props } in
-	    s |> SState.Heap.add label o |> SState.res_v newval
+	    let props = IdMap.add f new_prop props in
+	    s |> SState.Heap.update_p label props |> SState.res_v newval
 	  else
 	    SState.err ~pos s "Error [xeval] Extensible not true on object to extend with an attr"
       end
@@ -182,27 +186,27 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       xeval1 unit_set e s
   | EObject(attrs, props) ->
       let xeval_obj_attr (name, e) sl =
-	let add_attr v obj = match name, v with
-	| "proto", SConst (CUndefined | CNull) -> { obj with proto = None }
-	| "proto", SHeapLabel label -> { obj with proto = Some label }
+	let add_ip v ip = match name, v with
+	| "proto", SConst (CUndefined | CNull) -> { ip with proto = None }
+	| "proto", SHeapLabel label -> { ip with proto = Some label }
 	| "proto", SSymb ((TRef|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"proto\"" (pretty_position pos))
 	| "proto", _ -> failwith (sprintf "%s\nInternal property \"proto\" must have type object or null" (pretty_position pos))
-	| "class", SConst (CString _class) -> { obj with _class }
+	| "class", SConst (CString _class) -> { ip with _class }
 	| "class", SSymb ((TStr|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"class\"" (pretty_position pos))
 	| "class", _ -> failwith (sprintf "%s\nInternal property \"class\" must have type string" (pretty_position pos))
-	| "extensible", SConst (CBool extensible) -> { obj with extensible }
+	| "extensible", SConst (CBool extensible) -> { ip with extensible }
 	| "extensible", SSymb ((TBool|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"extensible\"" (pretty_position pos))
 	| "extensible", _ -> failwith (sprintf "%s\nInternal property \"extensible\" must have type boolean" (pretty_position pos))
-	| "code", SConst (CUndefined | CNull) -> { obj with code = None }
-	| "code", SClosure c -> { obj with code = Some c }
+	| "code", SConst (CUndefined | CNull) -> { ip with code = None }
+	| "code", SClosure c -> { ip with code = Some c }
 	| "code", SSymb _ -> failwith (sprintf "%s\nNYI symbolic value for internal property \"code\"" (pretty_position pos))
 	| "code", _ -> failwith (sprintf "%s\nInternal property \"code\" must be a closure or undefined" (pretty_position pos))
 	| _ -> failwith (sprintf "%s\nUnknown internal property %S" (pretty_position pos) name)
 	in
-	let unit_xeval_obj_attr obj s =
+	let unit_xeval_obj_attr ip s =
 	  s
           |> xeval e
-	  |> SState.map_res_unit (fun x s -> SState.res (match x with SValue v -> add_attr v obj | SExn e -> obj) s)
+	  |> SState.map_res_unit (fun x s -> SState.res (match x with SValue v -> add_ip v ip | SExn e -> ip) s)
 	in
 	SState.map_res unit_xeval_obj_attr sl
       in
@@ -215,19 +219,20 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	SState.map_res unit_xeval_prop_attr sl
       in
       let xeval_prop (name, attrs) sl =
-	let unit_xeval_prop obj s =
+	let unit_xeval_prop (p, ip) s =
 	  s
           |> SState.res Mk.empty_prop
 	  |> SState.singleton
           |> List.fold_leftr xeval_prop_attr attrs
-	  |> SState.map_res_unit (fun x s -> SState.res { obj with props = IdMap.add name x obj.props } s)
+	  |> SState.map_res_unit (fun x s -> SState.res (IdMap.add name x p, ip) s)
 	in
 	SState.map_res unit_xeval_prop sl
       in
       s
-      |> SState.res (Mk.empty_obj)
+      |> SState.res Mk.internal_props
       |> SState.singleton
       |> List.fold_leftr xeval_obj_attr attrs
+      |> SState.map_res_unit (fun ip s -> SState.res (IdMap.empty, ip) s)
       |> List.fold_leftr xeval_prop props
       |> SState.map (SState.check_exn_res SState.res_heap_add_fresh)
   | EUpdateFieldSurface(obj, f, v, args) ->
@@ -258,11 +263,11 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       let unit_delete obj_value f_value s =
 	match obj_value, f_value with
 	| SHeapLabel label, SConst (CString f) ->
-	    let { props; _ } as o = SState.Heap.find label s in
+	    let props = SState.Heap.find_p label s in
 	    begin match IdMap.find_opt f props with
 	    | Some { config = true; _ } ->
-		let o = { o with props = IdMap.remove f props } in
-		let s = SState.Heap.add label o s in
+		let props = IdMap.remove f props in
+		let s = SState.Heap.update_p label props s in
 		SState.res_true s
 	    | _ -> SState.res_false s
 	    end

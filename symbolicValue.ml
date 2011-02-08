@@ -124,8 +124,8 @@ type 'a prop = {
 }
 
 (* 'v is a svalue, 'c is a closure *)
-type ('v, 'c) sobj = {
-  props : 'v prop IdMap.t;
+type 'v props = 'v prop IdMap.t
+type 'c internal_props = {
   proto : sheaplabel option;
   _class : string;
   extensible : bool;
@@ -150,10 +150,9 @@ struct
   let sapp ?(typ=TAny) v vl = SSymb (typ, SApp(v, vl))
   let sid ~typ id = SSymb (typ, SId id)
 
-  let obj props =
-    { props; proto = None; _class = "Object";
+  let internal_props =
+    { proto = None; _class = "Object";
       extensible = false; code = None }
-  let empty_obj = obj IdMap.empty
 
   let empty_prop =
     { value = None; getter = None; setter = None;
