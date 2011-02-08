@@ -230,7 +230,7 @@ struct
 	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
 	| SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
 	| SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
-      and aux_props props = IdMap.fold aux_prop props
+      and aux_props { fields; _ } = IdMap.fold aux_prop fields
       and aux_internal_props { proto; _ } = aux_opt proto
       and aux_prop _ prop = aux_optv prop.value @> aux_opt prop.getter @> aux_opt prop.setter
       and aux_optv = function Some v -> aux v | None -> (fun x -> x)
@@ -268,16 +268,17 @@ struct
       let s_class = if _class = "" then "" else sprintf "class: %S, " _class in
       let s_extensible = sprintf "extensible: %B" extensible in
       let s_code = match code with None -> "" | Some _ -> ", code: <function>" in
-      let s_props = if IdMap.is_empty props then "" else "\n" ^ (sprops ~simplify s props) in
+      let s_props = if props_is_empty props then "" else "\n" ^ (sprops ~simplify s props) in
       "{[" ^ s_proto ^ s_class ^ s_extensible ^ s_code ^ "]" ^ s_props ^ "}"
     and spropattr_value ~simplify s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue ~simplify s v)
-    and sprops ~simplify s props =
+    and sprops ~simplify s { fields; more_but_fields } =
+      let add_more l = if more_but_fields = None then l else "& more (but ...)"::l in
       let unit_prop (prop_id, prop) =
 	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s prop)
       in
-      props |> IdMap.bindings |> List.map unit_prop |> String.concat ",\n"
+      fields |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
 
     let svalue_list s vl = String.concat ", " (List.map (svalue ~simplify:false s) vl)
 

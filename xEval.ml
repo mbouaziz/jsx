@@ -27,8 +27,8 @@ let apply_obj ~pos label this args s =
 
 
 let rec concrete_get_field ~pos label obj_this field args s =
-  let props = SState.Heap.find_p label s in
-  match IdMap.find_opt field props with
+  let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+  match IdMap.find_opt field fields with
   | Some prop ->
       begin match prop.value with
       | Some value -> SState.res_v value s
@@ -42,29 +42,74 @@ let rec concrete_get_field ~pos label obj_this field args s =
 	  | None -> SState.res_undef s
       end
   | None ->
-      let { proto; _ } = SState.Heap.find_ip label s in
-      match proto with
-      | Some lab -> concrete_get_field ~pos lab obj_this field args s
-      | None -> SState.res_undef s
+      let proto_get_field () =
+	let { proto; _ } = SState.Heap.find_ip label s in
+	match proto with
+	| Some lab -> concrete_get_field ~pos lab obj_this field args s
+	| None -> SState.res_undef s
+	in
+      match XDelta.concrete_has_prop label field s with
+      | Some false -> SState.res_undef s
+      | Some true -> proto_get_field ()
+      | None ->
+	  match more_but_fields with
+	  | None -> proto_get_field ()
+	  | Some but_fields ->
+	      let has s =
+		let sid = SId.from_string ~fresh:true field in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let props = { props with fields = IdMap.add field prop fields } in
+		let s = SState.Heap.update_p label props s in
+		SState.res_id ~typ:TAny sid s
+	      in
+	      let has_not s =
+		let { proto; _ } = SState.Heap.find_ip label s in
+		match proto with
+		| None ->
+		    let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
+		    let s = SState.Heap.update_p label props s in
+		    SState.res_undef s
+		| Some lab -> concrete_get_field ~pos lab obj_this field args s
+	      in
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
 
 
 let concrete_add_field ~pos label field newval s =
   let { extensible; _ } = SState.Heap.find_ip label s in
+  let { fields; more_but_fields } as props = SState.Heap.find_p label s in
   if extensible then
-    let props = SState.Heap.find_p label s in
-    let props = IdMap.add field (Mk.data_prop ~b:true newval) props in
+    let more_but_fields = match more_but_fields with
+    | None -> None
+    | Some but_fields -> Some (IdSet.remove field but_fields)
+    in
+    let props = { more_but_fields; fields = IdMap.add field (Mk.data_prop ~b:true newval) fields } in
     s |> SState.Heap.update_p label props |> SState.res_v newval
   else
-    SState.res_undef s
+    match more_but_fields with
+    | None -> SState.res_undef s
+    | Some but_fields when IdSet.mem field but_fields -> SState.res_undef s
+    | Some but_fields ->
+	let has s =
+	  let prop = Mk.data_prop ~b:true newval in
+	  let props = { props with fields = IdMap.add field prop fields } in
+	  let s = SState.Heap.update_p label props s in
+	  SState.res_v newval s
+	in
+	let has_not s =
+	  let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
+	  let s = SState.Heap.update_p label props s in
+	  SState.res_undef s
+	in
+	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
 
 
 let rec concrete_update_field ~pos label label_this field newval args s =
-  let props = SState.Heap.find_p label s in
-  match IdMap.find_opt field props with
+  let { fields; _  } as props = SState.Heap.find_p label s in
+  match IdMap.find_opt field fields with
   | Some prop ->
       if prop.writable then
 	if label = label_this then
-	  let props = IdMap.add field { prop with value = Some newval } props in
+	  let props = { props with fields = IdMap.add field { prop with value = Some newval } fields } in
 	  s |> SState.Heap.update_p label props |> SState.res_v newval
 	else
 	  concrete_add_field ~pos label_this field newval s
@@ -87,8 +132,8 @@ let rec concrete_update_field ~pos label label_this field newval args s =
 let get_attr ~pos attr obj field s =
   match obj, field with
   | SHeapLabel label, SConst (CString f) ->
-      let props = SState.Heap.find_p label s in
-      begin match IdMap.find_opt f props with
+      let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+      begin match IdMap.find_opt f fields with
       | Some prop ->
 	  begin match attr with
 	  | Value -> (match prop.value with Some v -> SState.res_v v s | None -> SState.res_undef s)
@@ -98,7 +143,27 @@ let get_attr ~pos attr obj field s =
 	  | Config -> SState.res_bool prop.config s
 	  | Enum -> SState.res_bool prop.enum s
 	  end
-      | None -> SState.res_undef s
+      | None ->
+	  match more_but_fields with
+	  | None -> SState.res_undef s
+	  | Some but_fields when IdSet.mem f but_fields || attr = Getter || attr = Setter -> SState.res_undef s
+	  | Some but_fields ->
+	      let has s =
+		let sid = SId.from_string ~fresh:true f in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let props = { props with fields = IdMap.add f prop fields } in
+		let s = SState.Heap.update_p label props s in
+		match attr with
+		| Value -> SState.res_id ~typ:TAny sid s
+		| Getter | Setter -> assert false
+		| Writable | Config | Enum -> SState.res_true s
+	      in
+	      let has_not s =
+		let props = { props with more_but_fields = Some (IdSet.add f but_fields) } in
+		let s = SState.Heap.update_p label props s in
+		SState.res_undef s
+	      in
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" obj field) s
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -148,20 +213,42 @@ let prop_add_attr_opt prop attr newval_opt ~config ~writable s =
 let set_attr ~pos attr obj field newval s =
   match obj, field with
   | SHeapLabel label, SConst (CString f) ->
-      let props = SState.Heap.find_p label s in
-      begin match IdMap.find_opt f props with
-      | Some prop ->
-	  let new_prop = prop_add_attr prop attr newval ~config:prop.config ~writable:prop.writable s in
-	  let props = IdMap.add f new_prop props in
+      let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+      let set_attr_existing_prop prop s =
+	let new_prop = prop_add_attr prop attr newval ~config:prop.config ~writable:prop.writable s in
+	let props = { props with fields = IdMap.add f new_prop fields } in
+	s |> SState.Heap.update_p label props |> SState.res_v newval
+      in
+      let set_attr_non_existing_prop more_but_fields s =
+	let { extensible; _ } = SState.Heap.find_ip label s in
+	if extensible then
+	  let new_prop = prop_add_attr Mk.empty_prop attr newval ~config:true ~writable:true s in
+	  let props = { more_but_fields; fields = IdMap.add f new_prop fields } in
 	  s |> SState.Heap.update_p label props |> SState.res_v newval
+	else
+	  SState.err ~pos s "Error [xeval] Extensible not true on object to extend with an attr"
+      in
+      begin match IdMap.find_opt f fields with
+      | Some prop -> set_attr_existing_prop prop s
       | None ->
-	  let { extensible; _ } = SState.Heap.find_ip label s in
-	  if extensible then
-	    let new_prop = prop_add_attr Mk.empty_prop attr newval ~config:true ~writable:true s in
-	    let props = IdMap.add f new_prop props in
-	    s |> SState.Heap.update_p label props |> SState.res_v newval
-	  else
-	    SState.err ~pos s "Error [xeval] Extensible not true on object to extend with an attr"
+	  match more_but_fields with
+	  | None -> set_attr_non_existing_prop None s
+	  | Some but_fields when IdSet.mem f but_fields -> set_attr_non_existing_prop (Some (IdSet.remove f but_fields)) s
+	  | Some but_fields ->
+	      let has s =
+		let prop =
+		  if attr = Value then
+		    Mk.empty_prop_true (* no need to create a symbol which will be overwritten *)
+		  else
+		    let sid = SId.from_string ~fresh:true f in
+		    Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid)
+		in
+		set_attr_existing_prop prop s
+	      in
+	      let has_not s =
+		set_attr_non_existing_prop (Some (IdSet.add f but_fields)) s
+	      in
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" obj field) s
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -219,12 +306,12 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	SState.map_res unit_xeval_prop_attr sl
       in
       let xeval_prop (name, attrs) sl =
-	let unit_xeval_prop (p, ip) s =
+	let unit_xeval_prop (props, ip) s =
 	  s
           |> SState.res Mk.empty_prop
 	  |> SState.singleton
           |> List.fold_leftr xeval_prop_attr attrs
-	  |> SState.map_res_unit (fun x s -> SState.res (IdMap.add name x p, ip) s)
+	  |> SState.map_res_unit (fun prop s -> SState.res ({ props with fields = IdMap.add name prop props.fields }, ip) s)
 	in
 	SState.map_res unit_xeval_prop sl
       in
@@ -232,7 +319,7 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       |> SState.res Mk.internal_props
       |> SState.singleton
       |> List.fold_leftr xeval_obj_attr attrs
-      |> SState.map_res_unit (fun ip s -> SState.res (IdMap.empty, ip) s)
+      |> SState.map_res_unit (fun ip s -> SState.res (Mk.empty_props, ip) s)
       |> List.fold_leftr xeval_prop props
       |> SState.map (SState.check_exn_res SState.res_heap_add_fresh)
   | EUpdateFieldSurface(obj, f, v, args) ->
@@ -263,13 +350,25 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       let unit_delete obj_value f_value s =
 	match obj_value, f_value with
 	| SHeapLabel label, SConst (CString f) ->
-	    let props = SState.Heap.find_p label s in
-	    begin match IdMap.find_opt f props with
+	    let { fields; more_but_fields } = SState.Heap.find_p label s in
+	    begin match IdMap.find_opt f fields with
 	    | Some { config = true; _ } ->
-		let props = IdMap.remove f props in
-		let s = SState.Heap.update_p label props s in
+		let fields = IdMap.remove f fields in
+		let more_but_fields = match more_but_fields with
+		| None -> None
+		| Some but_fields -> Some (IdSet.add f but_fields)
+		in
+		let s = SState.Heap.update_p label { fields; more_but_fields } s in
 		SState.res_true s
-	    | _ -> SState.res_false s
+	    | Some { config = false; _ } -> SState.res_false s
+	    | None ->
+		match more_but_fields with
+		| None -> SState.res_false s
+		| Some but_fields when IdSet.mem f but_fields -> SState.res_false s
+		| Some but_fields ->
+		    let props = { fields; more_but_fields = Some (IdSet.add f but_fields) } in
+		    let s = SState.Heap.update_p label props s in
+		    SState.res_op2 ~typ:TBool "has-own-property?" obj_value f_value s
 	    end
 	| _ -> SState.err ~pos s (sprintf "Error [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in

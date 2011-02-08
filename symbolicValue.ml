@@ -86,12 +86,18 @@ end
 module SId :
 sig
   type t
-  val from_string : string -> t
+  val from_string : ?fresh:bool -> string -> t
   val to_string : t -> string
 end =
 struct
   type t = string
-  let from_string s = s
+  let fresh_cnt = ref 0
+  let from_string ?(fresh=false) s =
+    if fresh then begin
+      incr fresh_cnt;
+      sprintf "%s$%d" s !fresh_cnt
+    end else
+      s
   let to_string t = sprintf "@%s" t
 end
 
@@ -124,13 +130,20 @@ type 'a prop = {
 }
 
 (* 'v is a svalue, 'c is a closure *)
-type 'v props = 'v prop IdMap.t
+type 'v props = { fields : 'v prop IdMap.t; more_but_fields : IdSet.t option }
+    (* if more_but_fields is Some set then the object can have more fields but not those in fields and in this set
+       if a field is in the set, then not only has-own-property return false but also has-property
+    *)
+
 type 'c internal_props = {
   proto : sheaplabel option;
   _class : string;
   extensible : bool;
   code : 'c option;
 }
+
+
+let props_is_empty { fields; more_but_fields } = more_but_fields = None && IdMap.is_empty fields
 
 
 module Mk =
@@ -154,9 +167,14 @@ struct
     { proto = None; _class = "Object";
       extensible = false; code = None }
 
+  let empty_props =
+    { fields = IdMap.empty; more_but_fields = None }
   let empty_prop =
     { value = None; getter = None; setter = None;
       writable = false; config = false; enum = false }
+  let empty_prop_true =
+    { value = None; getter = None; setter = None;
+      writable = true; config = true; enum = true }
   let data_prop ?(b=false) v =
     { value = Some v; getter = None; setter = None;
       writable = b; config = b; enum = b }

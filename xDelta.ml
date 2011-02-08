@@ -125,12 +125,15 @@ let object_to_string ~pos v s = match v with
 let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let props = SState.Heap.find_p label s in
+    if props.more_but_fields <> None then
+      SState.res_op1 ~typ:TRef "own-property-names" v s
+    else
       let add_name name _ (i, m) =
 	let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
 	i + 1, m
       in
-      let _, props = IdMap.fold add_name props (0, IdMap.empty) in
-      SState.res_heap_add_fresh (props, Mk.internal_props) s
+      let _, fields = IdMap.fold add_name props.fields (0, IdMap.empty) in
+      SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
 | SSymb (TBool, _)
 | SSymb (TInt, _)
 | SSymb (TNum, _)
@@ -233,16 +236,19 @@ let surface_typeof ~pos v s = match v with
 
 let get_property_names ~pos v s = match v with
 | SHeapLabel label ->
-    let rec all_protos_props label = (* Return None if there is a symbolic value that can contribute to the protos ; So far : not possible but may become possible if symbolic prototypes are allowed *)
-      let props = SState.Heap.find_p label s in
-      let { proto; _ } = SState.Heap.find_ip label s in
-      match proto with
-      | Some lab ->
-	  begin match all_protos_props lab with
-	  | Some l -> Some (props::l)
-	  | None -> None
-	  end
-      | None -> Some [props]
+    let rec all_protos_props label = (* Return None if there is a symbolic value that can contribute to the protos props *)
+      let { fields; more_but_fields } = SState.Heap.find_p label s in
+      if more_but_fields <> None then
+	None
+      else
+	let { proto; _ } = SState.Heap.find_ip label s in
+	match proto with
+	| Some lab ->
+	    begin match all_protos_props lab with
+	    | Some l -> Some (fields::l)
+	    | None -> None
+	    end
+	| None -> Some [fields]
     in
     let rec collect_names set_opt props = match set_opt with
     | Some _ ->
@@ -262,8 +268,8 @@ let get_property_names ~pos v s = match v with
 	    let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
 	    i + 1, m
 	  in
-	  let _, props = IdSet.fold add_name name_set (0, IdMap.empty) in
-	  SState.res_heap_add_fresh (props, Mk.internal_props) s
+	  let _, fields = IdSet.fold add_name name_set (0, IdMap.empty) in
+	  SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
     end
 | SSymb (TBool, _)
 | SSymb (TInt, _)
@@ -479,29 +485,92 @@ let string_plus ~pos v1 v2 s = match v1, v2 with
 | _ -> SState.throw_str ~pos s "string concatenation"
 
 let has_own_property ~pos v1 v2 s = match v1, v2 with
-| SHeapLabel label, SConst (CString prop) ->
-    let props = SState.Heap.find_p label s in
-    SState.res_bool (IdMap.mem prop props) s
+| SHeapLabel label, SConst (CString field) ->
+    let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+    if IdMap.mem field fields then
+      SState.res_true s
+    else begin match more_but_fields with
+    | None -> SState.res_false s
+    | Some but_fields when IdSet.mem field but_fields -> SState.res_false s
+    | Some but_fields ->
+	let has s = (* todo: more_fields initializer instead of symbol_any *)
+	  let sid = SId.from_string ~fresh:true field in
+	  let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+	  let props = { props with fields = IdMap.add field prop fields } in
+	  let s = SState.Heap.update_p label props s in
+	  SState.res_true s
+	in
+	let has_not s =
+	  let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
+	  let s = SState.Heap.update_p label props s in
+	  SState.res_false s
+	in
+	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" v1 v2) s
+    end
 | (SHeapLabel _ | SSymb (TRef, _)), (SConst (CString _) | SSymb (TStr, _)) ->
     SState.res_op2 ~typ:TBool "has-own-property?" v1 v2 s
 | (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
     SState.res_op2 ~typ:TAny "has-own-property?" v1 v2 s
 | _ -> SState.throw_str ~pos s "has-own-property?"
 
-let has_property ~pos v1 v2 s = match v1, v2 with
-| SHeapLabel label, SConst (CString prop) ->
-    let rec has_prop label =
-      let props = SState.Heap.find_p label s in
-      if IdMap.mem prop props then
-	SState.res_true s
-      else
-	let { proto; _ } = SState.Heap.find_ip label s in
-	begin match proto with
-	| None -> SState.res_false s
-	| Some lab -> has_prop lab
-	end
+(*
+  concrete_has_prop returns
+  Some true if has-property would return true
+  Some false if has-property would return false
+  None if there is some extensible object in the prototype chain of the object
+*)
+let rec concrete_has_prop label field s =
+  let { fields; more_but_fields } = SState.Heap.find_p label s in
+  if IdMap.mem field fields then
+    Some true
+  else
+    let proto_concrete_has_prop () =
+      let { proto; _ } = SState.Heap.find_ip label s in
+      match proto with
+      | None -> Some false
+      | Some lab -> concrete_has_prop lab field s
     in
-    has_prop label
+    match more_but_fields with
+    | None -> proto_concrete_has_prop ()
+    | Some but_fields when IdSet.mem field but_fields -> Some false
+    | Some but_fields -> match proto_concrete_has_prop () with
+      | Some true -> Some true
+      | _ -> None
+
+let has_property ~pos v1 v2 s = match v1, v2 with
+| SHeapLabel label, SConst (CString field) ->
+    let rec symbolic_has_prop label =
+      match concrete_has_prop label field s with
+      | Some b -> SState.res_bool b s
+      | None ->
+	  let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+	  match more_but_fields with
+	  | None ->
+	      let { proto; _ } = SState.Heap.find_ip label s in
+	      begin match proto with
+	      | None -> assert false (* already treated in concrete_has_prop *)
+	      | Some lab -> symbolic_has_prop lab
+	      end
+	  | Some but_fields ->
+	      let has s = (* todo: cf todo of has_own_property *)
+		let sid = SId.from_string ~fresh:true field in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let props = { props with fields = IdMap.add field prop fields } in
+		let s = SState.Heap.update_p label props s in
+		SState.res_true s
+	      in
+	      let has_not s =
+		let { proto; _ } = SState.Heap.find_ip label s in
+		match proto with
+		| None ->
+		    let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
+		    let s = SState.Heap.update_p label props s in
+		    SState.res_false s
+		| Some lab -> symbolic_has_prop lab
+	      in
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" v1 v2) s
+    in
+    symbolic_has_prop label
 | (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
     SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
 | _ -> SState.res_false s
