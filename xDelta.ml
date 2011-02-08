@@ -484,6 +484,17 @@ let string_plus ~pos v1 v2 s = match v1, v2 with
     SState.res_op2 ~typ:TAny "string+" v1 v2 s
 | _ -> SState.throw_str ~pos s "string concatenation"
 
+let symbol_object ~pos v1 v2 s = match v1, v2 with
+| SConst (CString _ | CInt _), SHeapLabel label ->
+    let props = SState.Heap.find_p label s in
+    if props.more_but_fields = None then
+      let props = { props with more_but_fields = Some IdSet.empty } in
+      let s = SState.Heap.update_p label props s in
+      SState.res_heaplabel label s
+    else
+      SState.err ~pos s "object can already have more fields"
+| _ -> SState.err ~pos s "symbol_object, bad parameters"
+
 let has_own_property ~pos v1 v2 s = match v1, v2 with
 | SHeapLabel label, SConst (CString field) ->
     let { fields; more_but_fields } as props = SState.Heap.find_p label s in
@@ -597,6 +608,7 @@ let op2 ~pos op v1 v2 s =
   | "abs=" -> abs_eq
   | "stx=" -> stx_eq
   | "string+" -> string_plus
+  | "symbol_object" -> symbol_object
   | "has-own-property?" -> has_own_property
   | "has-property?" -> has_property
   | op -> err_op2 ~op

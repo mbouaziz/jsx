@@ -17,6 +17,9 @@
   global["symbol_string" = function(s){
     return prim("symbol_string",s)
   }];
+  global["symbol_object" = function(s,p,c,e){
+    return prim("symbol_object",s,{[proto: p, extensible: e, class: c]})
+  }];
   global["symbol_ref" = function(s){
     return prim("symbol_ref",s)
   }];
