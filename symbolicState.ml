@@ -219,24 +219,34 @@ struct
       | CRegexp (re, g, i) -> sprintf "/%s/%s%s" re (if g then "g" else "") (if i then "i" else "")
 
     (* Collect only labels that will be printed by svalue AND by svalue of SHeap.find of these labels *)
-    let collect_labels { heap ; _ } vl labs =
-      let rec aux v labs = match v with
+    let collect_labels ~depth { heap ; _ } vl labs =
+      let rec aux ~depth v labs = match v with
       | SConst _ -> labs
-      | SHeapLabel l -> labs |> LabelSet.add l |> aux_props (SHeap.P.find l heap.p) |> aux_internal_props (SHeap.IP.find l heap.ip)
+      | SHeapLabel l -> aux_heaplabel ~depth l labs
       | SClosure _ -> labs
       | SSymb (_, symb) -> match symb with
 	| SId _ -> labs
-	| SOp1(_, v) -> labs |> aux v
-	| SOp2(_, v1, v2) -> labs |> aux v1 |> aux v2
-	| SOp3(_, v1, v2, v3) -> labs |> aux v1 |> aux v2 |> aux v3
-	| SApp(v, vl) -> labs |> aux v |> List.fold_right aux vl
-      and aux_props { fields; _ } = IdMap.fold aux_prop fields
-      and aux_internal_props { proto; _ } = aux_opt proto
-      and aux_prop _ prop = aux_optv prop.value @> aux_opt prop.getter @> aux_opt prop.setter
-      and aux_optv = function Some v -> aux v | None -> (fun x -> x)
-      and aux_opt = function Some l -> LabelSet.add l | None -> (fun x -> x)
+	| SOp1(_, v) -> labs |> aux ~depth v
+	| SOp2(_, v1, v2) -> labs |> aux ~depth v1 |> aux ~depth v2
+	| SOp3(_, v1, v2, v3) -> labs |> aux ~depth v1 |> aux ~depth v2 |> aux ~depth v3
+	| SApp(v, vl) -> labs |> aux ~depth v |> List.fold_right (aux ~depth) vl
+      and aux_heaplabel ~depth l labs =
+	if LabelSet.mem l labs then (* prevents from looping *)
+	  labs
+	else
+	  let labs = LabelSet.add l labs in
+	  if depth <= 0 then
+	    labs
+	  else
+	    let depth = depth - 1 in
+	    labs |> aux_props ~depth (SHeap.P.find l heap.p) |> aux_internal_props ~depth (SHeap.IP.find l heap.ip)
+      and aux_props ~depth { fields; _ } = IdMap.fold (aux_prop ~depth) fields
+      and aux_internal_props ~depth { proto; _ } = aux_opt ~depth proto
+      and aux_prop ~depth _ prop = aux_optv ~depth prop.value @> aux_opt ~depth prop.getter @> aux_opt ~depth prop.setter
+      and aux_optv ~depth = function Some v -> aux ~depth v | None -> (fun x -> x)
+      and aux_opt ~depth = function Some l -> aux_heaplabel ~depth l | None -> (fun x -> x)
       in
-      List.fold_right aux vl labs
+      List.fold_right (aux ~depth) vl labs
 
     let rec svalue ?(deep=false) ?(brackets=false) ?(simplify=false) s =
       let enclose x = if brackets then sprintf "(%s)" x else x in
@@ -268,13 +278,21 @@ struct
       let s_class = if _class = "" then "" else sprintf "class: %S, " _class in
       let s_extensible = sprintf "extensible: %B" extensible in
       let s_code = match code with None -> "" | Some _ -> ", code: <function>" in
-      let s_props = if props_is_empty props then "" else "\n" ^ (sprops ~simplify s props) in
+      let s_props = if props_is_empty props then "" else String.interline "  " ("\n" ^ sprops ~simplify s props) in
       "{[" ^ s_proto ^ s_class ^ s_extensible ^ s_code ^ "]" ^ s_props ^ "}"
     and spropattr_value ~simplify s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue ~simplify s v)
     and sprops ~simplify s { fields; more_but_fields } =
-      let add_more l = if more_but_fields = None then l else "& more (but ...)"::l in
+      let add_more l = match more_but_fields with
+      | None -> l
+      | Some but_fields ->
+	  let but = IdSet.to_list but_fields |> String.concat ", " in
+	  let but =
+	    if but = "" then ""
+	    else sprintf " (but %s)" but in
+	  l@[sprintf "& more%s" but]
+      in
       let unit_prop (prop_id, prop) =
 	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s prop)
       in
@@ -319,7 +337,7 @@ struct
     let env s env = ""
     let callstack s cs = ""
     let heap ?labs s heap =
-      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (sobj ~simplify:false s (SHeap.P.find lab heap.p) v))::l in
+      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (String.interline "\t" (sobj ~simplify:false s (SHeap.P.find lab heap.p) v)))::l in
       let unit_lab = match labs with
       | None -> add_lab
       | Some labs -> fun lab v l -> if LabelSet.mem lab labs then add_lab lab v l else l
@@ -344,13 +362,14 @@ struct
       | None -> []
 
     let state s =
+      let depth = 1 in (* prevents from printing too many objects *)
       let labs = LabelSet.empty
-      |> collect_labels s (PathCondition.PC.values s.pc)
-      |> collect_labels s (env_values s.env)
-      |> collect_labels s (rvalue_values s.res)
-      |> collect_labels s (exn_values s.exn)
-      |> collect_labels s (SOutput.values s.out)
-      |> collect_labels s (callstack_values s.callstack)
+      |> collect_labels ~depth s (PathCondition.PC.values s.pc)
+      |> collect_labels ~depth s (env_values s.env)
+      |> collect_labels ~depth s (rvalue_values s.res)
+      |> collect_labels ~depth s (exn_values s.exn)
+      |> collect_labels ~depth s (SOutput.values s.out)
+      |> collect_labels ~depth s (callstack_values s.callstack)
       in
       let pc_label = sprintf "pc[%s]" (PathCondition.ToString.sat s.pc) in
       ["assum", assumptions s s.pc; "assert", assertions s s.pc; pc_label, pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "out", out s s.out]
