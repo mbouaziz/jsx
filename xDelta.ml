@@ -161,7 +161,7 @@ let prim_to_num ~pos v s = match v with
     end
 | SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tInt "bool->num" v s
 | SSymb (TV (TP (TN _)), _) -> SState.res_v v s
-| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tA "str->num" v s
+| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tNAny "str->num" v s
 | SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.res_op1 ~typ:tA "prim->num" v s
 | _ -> SState.throw_str ~pos s "prim_to_num"
 
@@ -396,8 +396,11 @@ let arith_gt ~pos v1 v2 s = arith_cmp ">" (>) (>) ~pos v1 v2 s
 let arith_ge ~pos v1 v2 s = arith_cmp ">=" (>=) (>=) ~pos v1 v2 s
 
 let abs_eq ~pos v1 v2 s = match v1, v2 with
-  (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
+| SClosure _, _ | _, SClosure _ -> assert false
+| SConst (CNum n), _
+| _, SConst (CNum n) when n == nan -> SState.res_false s
 | v1, v2 when v1 == v2 || v1 = v2 -> SState.res_true s
+| SHeapLabel _, SHeapLabel _ -> SState.res_false s
 | SConst c1, SConst c2 ->
     let b = match c1, c2 with
     | CNull, CUndefined
@@ -407,29 +410,36 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
     | CString x, CInt n
     | CInt n, CString x -> (try float_of_int n = float_of_string x with Failure _ -> false)
     | CNum n, CBool b
-    | CBool b, CNum n -> n = (if b then 1.0 else 0.0)
+    | CBool b, CNum n -> n = if b then 1.0 else 0.0
     | CInt n, CBool b
-    | CBool b, CInt n -> n = (if b then 1 else 0)
+    | CBool b, CInt n -> n = if b then 1 else 0
     | CNum f, CInt i
     | CInt i, CNum f -> float_of_int i = f
+    | CBool b, CString s
+    | CString s, CBool b -> (try float_of_string s = if b then 1.0 else 0.0 with Failure "float_of_string" -> false)
     | _ -> false
     in SState.res_bool b s
 | (SConst (CBool _) | SSymb (TV (TP TBool), _)), (SConst (CBool _) | SSymb (TV (TP TBool), _))
 | (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _))
 | (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _))
-| (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
+| (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _))
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) ->
     SState.res_op2 ~typ:tBool "=" v1 v2 s
 | (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
     SState.res_op2 ~typ:tBool "stx=" v1 v2 s
-| (SConst _ | SSymb (TV (TP _), _)), (SConst _ | SSymb (TV (TP _), _)) ->
+(* some cases could be optimized here but it would be very long to enumerate them *)
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SConst _ | SSymb (TV (TP _), _))
+| (SConst _ | SSymb (TV (TP _), _)), (SHeapLabel _ | SSymb (TV TRef, _)) ->
+    SState.res_false s
+| (SConst _ | SHeapLabel _ | SSymb (TV _, _)), (SConst _ | SHeapLabel _ | SSymb (TV _, _)) ->
     SState.res_op2 ~typ:tBool "abs=" v1 v2 s
-| (SConst _ | SSymb ((TV TVAny | TA), _)), (SConst _ | SSymb ((TV TVAny | TA), _)) ->
-    SState.res_op2 ~typ:tA "abs=" v1 v2 s
-| _ -> SState.throw_str ~pos s "expected primitive constant"
+| _, _ -> SState.res_op2 ~typ:tA "abs=" v1 v2 s
 
 let stx_eq ~pos v1 v2 s = match v1, v2 with
 | SClosure _, _ | _, SClosure _ -> assert false
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
+| SConst (CNum n), _
+| _, SConst (CNum n) when n == nan -> SState.res_false s
 | v1, v2 when v1 == v2 || v1 = v2 -> SState.res_true s 
 | SConst (CNum n), SConst (CInt i)
 | SConst (CInt i), SConst (CNum n) -> SState.res_bool (float_of_int i = n) s
