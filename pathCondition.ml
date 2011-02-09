@@ -305,7 +305,7 @@ struct
 
     module Symbols =
     struct
-      let any sid = "sA" ^ (SId.to_string sid)
+      let vany sid = "sA" ^ (SId.to_string sid)
       let bool sid = "sB" ^ (SId.to_string sid)
       let int sid = "sI" ^ (SId.to_string sid)
       let num sid = "sN" ^ (SId.to_string sid)
@@ -383,7 +383,7 @@ struct
 
     let of_app v l = failwith "No SMT implementation for symbolic applications"
 
-    let sid_var sid = SMT.mk_var (Symbols.any sid) S.jsVal
+    let sid_var sid = SMT.mk_var (Symbols.vany sid) S.jsVal
     let sid_bool_var sid = SMT.mk_var (Symbols.bool sid) SMT.bool_sort
     let sid_int_var sid = SMT.mk_var (Symbols.int sid) IntRepr.sort
     let sid_num_var sid = SMT.mk_var (Symbols.num sid) NumRepr.sort
@@ -391,12 +391,13 @@ struct
     let sid_ref_var sid = SMT.mk_var (Symbols._ref sid) RefRepr.sort
 
     let rec of_typed_symb = function
-      | TBool, SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
-      | TInt, SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
-      | TNum, SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
-      | TStr, SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
-      | TRef, SId sid -> SMT.mk_appf F.vRef [| sid_ref_var sid |]
-      | TAny, SId sid -> sid_var sid
+      | TV (TP TBool), SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
+      | TV (TP (TN TInt)), SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
+      | TV (TP (TN TNum)), SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
+      | TV (TP TStr), SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
+      | TV TRef, SId sid -> SMT.mk_appf F.vRef [| sid_ref_var sid |]
+      | TV TVAny, SId sid -> sid_var sid
+      | _, SId _ -> assert false
       | _, SOp1 (o, x) -> of_op1 o (of_svalue x)
       | _, SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
       | _, SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)
@@ -411,9 +412,9 @@ struct
     let mk_not_to_bool x = SMT.mk_appf F.notValToBool [| x |]
 
     let of_predicate = function
-      | PredVal (SSymb (TBool, SId sid)) -> sid_bool_var sid
+      | PredVal (SSymb (TV (TP TBool), SId sid)) -> sid_bool_var sid
       | PredVal v -> mk_to_bool (of_svalue v)
-      | PredNotVal (SSymb (TBool, SId sid)) -> SMT.mk_not (sid_bool_var sid)
+      | PredNotVal (SSymb (TV (TP TBool), SId sid)) -> SMT.mk_not (sid_bool_var sid)
       | PredNotVal v -> mk_not_to_bool (of_svalue v)
   end
 
@@ -426,12 +427,13 @@ struct
     | SSymb ts -> of_typed_symb ts m
     | _ -> m
     and of_typed_symb ts m = match ts with
-    | TAny, SId sid -> StringMap.add (SId.to_string sid) (any sid) m
-    | TBool, SId sid -> StringMap.add (SId.to_string sid) (bool sid) m
-    | TInt, SId sid -> StringMap.add (SId.to_string sid) (int sid) m
-    | TNum, SId sid -> StringMap.add (SId.to_string sid) (num sid) m
-    | TStr, SId sid -> StringMap.add (SId.to_string sid) (str sid) m
-    | TRef, SId sid -> StringMap.add (SId.to_string sid) (_ref sid) m
+    | TV (TP TBool), SId sid -> StringMap.add (SId.to_string sid) (bool sid) m
+    | TV (TP (TN TInt)), SId sid -> StringMap.add (SId.to_string sid) (int sid) m
+    | TV (TP (TN TNum)), SId sid -> StringMap.add (SId.to_string sid) (num sid) m
+    | TV (TP TStr), SId sid -> StringMap.add (SId.to_string sid) (str sid) m
+    | TV TRef, SId sid -> StringMap.add (SId.to_string sid) (_ref sid) m
+    | TV TVAny, SId sid -> StringMap.add (SId.to_string sid) (vany sid) m
+    | _, SId _ -> assert false
     | _, SOp1 (_, v) -> of_svalue v m
     | _, SOp2 (_, v1, v2) -> m |> of_svalue v1 |> of_svalue v2
     | _, SOp3 (_, v1, v2, v3) -> m |> of_svalue v1 |> of_svalue v2 |> of_svalue v3

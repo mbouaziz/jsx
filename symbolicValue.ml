@@ -101,7 +101,21 @@ struct
   let to_string t = sprintf "@%s" t
 end
 
-type ssymb_type = TAny | TBool | TInt | TNum | TStr | TRef
+type ssymb_type_number = TNAny | TInt | TNum
+type ssymb_type_prim = TPAny | TBool | TN of ssymb_type_number | TStr
+type ssymb_type_val = TVAny | TP of ssymb_type_prim | TRef
+type ssymb_type = TA | TV of ssymb_type_val (* TA means TV or error *)
+
+let tBool = TV (TP TBool)
+let tInt = TV (TP (TN TInt))
+let tNum = TV (TP (TN TNum))
+let tNAny = TV (TP (TN TNAny))
+let tStr = TV (TP TStr)
+let tPAny = TV (TP TPAny)
+let tRef = TV TRef
+let tVAny = TV TVAny
+let tA = TA
+
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
@@ -157,10 +171,10 @@ struct
   let int i = SConst (CInt i)
   let num f = SConst (CNum f)
   let str x = SConst (CString x)
-  let sop1 ?(typ=TAny) o v = SSymb (typ, SOp1(o, v))
-  let sop2 ?(typ=TAny) o v1 v2 = SSymb (typ, SOp2(o, v1, v2))
-  let sop3 ?(typ=TAny) o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
-  let sapp ?(typ=TAny) v vl = SSymb (typ, SApp(v, vl))
+  let sop1 ~typ o v = SSymb (typ, SOp1(o, v))
+  let sop2 ~typ o v1 v2 = SSymb (typ, SOp2(o, v1, v2))
+  let sop3 ~typ o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
+  let sapp ~typ v vl = SSymb (typ, SApp(v, vl))
   let sid ~typ id = SSymb (typ, SId id)
 
   let internal_props =

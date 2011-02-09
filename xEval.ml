@@ -57,10 +57,10 @@ let rec concrete_get_field ~pos label obj_this field args s =
 	  | Some but_fields ->
 	      let has s =
 		let sid = SId.from_string ~fresh:true field in
-		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 		let props = { props with fields = IdMap.add field prop fields } in
 		let s = SState.Heap.update_p label props s in
-		SState.res_id ~typ:TAny sid s
+		SState.res_id ~typ:tVAny sid s
 	      in
 	      let has_not s =
 		let { proto; _ } = SState.Heap.find_ip label s in
@@ -71,7 +71,7 @@ let rec concrete_get_field ~pos label obj_this field args s =
 		    SState.res_undef s
 		| Some lab -> concrete_get_field ~pos lab obj_this field args s
 	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
 
 
 let concrete_add_field ~pos label field newval s =
@@ -100,7 +100,7 @@ let concrete_add_field ~pos label field newval s =
 	  let s = SState.Heap.update_p label props s in
 	  SState.res_undef s
 	in
-	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
+	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" (SHeapLabel label) (SConst (CString field))) s
 
 
 let rec concrete_update_field ~pos label label_this field newval args s =
@@ -150,11 +150,11 @@ let get_attr ~pos attr obj field s =
 	  | Some but_fields ->
 	      let has s =
 		let sid = SId.from_string ~fresh:true f in
-		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 		let props = { props with fields = IdMap.add f prop fields } in
 		let s = SState.Heap.update_p label props s in
 		match attr with
-		| Value -> SState.res_id ~typ:TAny sid s
+		| Value -> SState.res_id ~typ:tVAny sid s
 		| Getter | Setter -> assert false
 		| Writable | Config | Enum -> SState.res_true s
 	      in
@@ -163,7 +163,7 @@ let get_attr ~pos attr obj field s =
 		let s = SState.Heap.update_p label props s in
 		SState.res_undef s
 	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" obj field) s
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" obj field) s
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] get-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -187,20 +187,20 @@ let fun_obj s label =
 let prop_add_attr prop attr newval ~config ~writable s =
   match attr, newval with
   | Enum, SConst (CBool b) when config -> { prop with enum = b }
-  | Enum, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Enum>"
+  | Enum, SSymb ((TV (TP (TBool | TPAny) | TVAny) | TA), _) when config -> failwith "NYI Symbolic value for set_attr<Enum>"
   | Config, SConst (CBool b) when config -> { prop with config = b }
-  | Config, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Config>"
+  | Config, SSymb ((TV (TP (TBool | TPAny) | TVAny) | TA), _) when config -> failwith "NYI Symbolic value for set_attr<Config>"
   | Writable, SConst (CBool b) when config -> { prop with writable = b }
-  | Writable, SSymb ((TBool | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Writable>"
+  | Writable, SSymb ((TV (TP (TBool | TPAny) | TVAny) | TA), _) when config -> failwith "NYI Symbolic value for set_attr<Writable>"
   | Writable, SConst (CBool false) when writable && is_data prop -> { prop with writable = false }
-  | Writable, SSymb ((TBool | TAny), _) when writable -> failwith "Symbolic value for set_attr<Writable>"
+  | Writable, SSymb ((TV (TP (TBool | TPAny) | TVAny) | TA), _) when writable -> failwith "Symbolic value for set_attr<Writable>"
   | Value, v when writable -> { (to_data prop) with value = Some v }
   | Setter, SHeapLabel l when config && fun_obj s l -> { (to_acc prop) with setter = Some l }
   | Setter, SConst CUndefined when config -> { (to_acc prop) with setter = None }
-  | Setter, SSymb ((TRef | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Setter>"
+  | Setter, SSymb ((TV (TRef | TVAny) | TA), _) when config -> failwith "NYI Symbolic value for set_attr<Setter>"
   | Getter, SHeapLabel l when config && fun_obj s l -> { (to_acc prop) with getter = Some l }
   | Getter, SConst CUndefined when config -> { (to_acc prop) with getter = None }
-  | Getter, SSymb ((TRef | TAny), _) when config -> failwith "NYI Symbolic value for set_attr<Getter>"
+  | Getter, SSymb ((TV (TRef | TVAny) | TA), _) when config -> failwith "NYI Symbolic value for set_attr<Getter>"
   | _ -> prop
 
 
@@ -241,14 +241,14 @@ let set_attr ~pos attr obj field newval s =
 		    Mk.empty_prop_true (* no need to create a symbol which will be overwritten *)
 		  else
 		    let sid = SId.from_string ~fresh:true f in
-		    Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid)
+		    Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid)
 		in
 		set_attr_existing_prop prop s
 	      in
 	      let has_not s =
 		set_attr_non_existing_prop (Some (IdSet.add f but_fields)) s
 	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" obj field) s
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" obj field) s
       end
   | _ -> SState.err ~pos s (sprintf "Error [xeval] set-attr didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj) (ToString.svalue s field))
 
@@ -276,13 +276,13 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	let add_ip v ip = match name, v with
 	| "proto", SConst (CUndefined | CNull) -> { ip with proto = None }
 	| "proto", SHeapLabel label -> { ip with proto = Some label }
-	| "proto", SSymb ((TRef|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"proto\"" (pretty_position pos))
+	| "proto", SSymb ((TV (TRef | TVAny) | TA), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"proto\"" (pretty_position pos))
 	| "proto", _ -> failwith (sprintf "%s\nInternal property \"proto\" must have type object or null" (pretty_position pos))
 	| "class", SConst (CString _class) -> { ip with _class }
-	| "class", SSymb ((TStr|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"class\"" (pretty_position pos))
+	| "class", SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"class\"" (pretty_position pos))
 	| "class", _ -> failwith (sprintf "%s\nInternal property \"class\" must have type string" (pretty_position pos))
 	| "extensible", SConst (CBool extensible) -> { ip with extensible }
-	| "extensible", SSymb ((TBool|TAny), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"extensible\"" (pretty_position pos))
+	| "extensible", SSymb ((TV (TP (TBool | TPAny) | TVAny) | TA), _) -> failwith (sprintf "%s\nNYI symbolic value for internal property \"extensible\"" (pretty_position pos))
 	| "extensible", _ -> failwith (sprintf "%s\nInternal property \"extensible\" must have type boolean" (pretty_position pos))
 	| "code", SConst (CUndefined | CNull) -> { ip with code = None }
 	| "code", SClosure c -> { ip with code = Some c }
@@ -336,13 +336,10 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 	match obj_value, f_value with
 	| SHeapLabel label, SConst (CString f) ->
 	    concrete_get_field ~pos label obj_value f args_value s
-	| SSymb _, SConst (CString _) ->
-	    (* TODO: primitive? is not the opposite of obj? that should be used here *)
-	    (* resl_rv_if s *)
-            (*   (Mk.sop1 "primitive?" obj_value) *)
-	    (*   (SExn (Mk.serr ~pos s (make_err s))) *)
-            (*   (SValue (Mk.sop2 "get-field" obj_value f_value)) *)
-	    SState.res_v (Mk.sop2 "get-field" obj_value f_value) s
+	| (SHeapLabel _ | SSymb (TV TRef, _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
+	    SState.res_op2 ~typ:tVAny "get-field" obj_value f_value s
+	| (SHeapLabel _ | SSymb ((TV (TRef | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
+	    SState.res_op2 ~typ:tA "get-field" obj_value f_value s
 	| _ -> SState.err ~pos s (make_err s)
       in
       xeval3 unit_get obj f args s
@@ -368,7 +365,7 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
 		| Some but_fields ->
 		    let props = { fields; more_but_fields = Some (IdSet.add f but_fields) } in
 		    let s = SState.Heap.update_p label props s in
-		    SState.res_op2 ~typ:TBool "has-own-property?" obj_value f_value s
+		    SState.res_op2 ~typ:tBool "has-own-property?" obj_value f_value s
 	    end
 	| _ -> SState.err ~pos s (sprintf "Error [xeval] EDeleteField didn't get an object and a string. Instead it got %s and %s." (ToString.svalue s obj_value) (ToString.svalue s f_value))
       in

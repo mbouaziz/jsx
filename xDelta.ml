@@ -25,8 +25,8 @@ let const_typeof ~fname ~pos c s = match c with
 
 let bool_neg ~pos v s = match v with
 | SConst (CBool b) -> SState.res_bool (not b) s
-| SSymb (TBool, _) -> SState.res_op1 ~typ:TBool "bool!" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "bool!" v s
+| SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tBool "bool!" v s
+| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.res_op1 ~typ:tA "bool!" v s
 | _ -> SState.throw_str ~pos s "bool!"
 
 let eval ~pos v s = match v with
@@ -52,8 +52,8 @@ let eval ~pos v s = match v with
 	    |> xeval fine_ljs
 	    |> SState.map_unit SState.Env.pop
     end
-| SSymb (TStr, _)
-| SSymb (TAny, _) -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
+| SSymb (TV (TP TStr), _)
+| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
 | _ -> SState.throw_str ~pos s "eval"
 
 let fail ~pos v s = SState.res_false s (* no such thing in my implementation *)
@@ -65,60 +65,41 @@ let get_proto ~pos v s = match v with
     | Some proto -> SState.res_heaplabel proto s
     | None -> SState.res_undef s
     end
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "get-proto"
-| SSymb (TRef, _)
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "get-proto" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tVAny "get-proto" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "get-proto" v s
 | _ -> SState.throw_str ~pos s "get-proto"
 
 let is_array ~pos v s = match v with
 | SHeapLabel label ->
     let { _class ; _ } = SState.Heap.find_ip label s in
     SState.res_bool (_class = "Array") s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "is-array"
-| SSymb (TRef, _)
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-array" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "is-array" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "is-array" v s
 | _ -> SState.throw_str ~pos s "is-array"
 
 let is_callable ~pos v s = match v with
 | SHeapLabel label ->
     let { code ; _ } = SState.Heap.find_ip label s in
     SState.res_bool (code <> None) s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.res_false s
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TBool "ref-is-callable" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "is-callable" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "ref-is-callable" v s
+| SSymb (TV TVAny, _) -> SState.res_op1 ~typ:tBool "is-callable" v s
+| SSymb (TA, _) -> SState.res_op1 ~typ:tA "is-callable" v s
 | _ -> SState.res_false s
 
 let is_extensible ~pos v s = match v with
 | SHeapLabel label ->
     let { extensible ; _ } = SState.Heap.find_ip label s in
     SState.res_bool extensible s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "is-extensible"
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TBool "is-extensible" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "is-extensible" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "is-extensible" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "is-extensible" v s
 | _ -> SState.throw_str ~pos s "is-extensible"
 
 let object_to_string ~pos v s = match v with
 | SHeapLabel label ->
     let { _class ; _ } = SState.Heap.find_ip label s in
     SState.res_str (sprintf "[object %s]" _class) s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "object-to-string, wasn't given object"
-| SSymb (TRef, _)
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "object-to-string" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tStr "object-to-string" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "object-to-string" v s
 | _ -> SState.throw_str ~pos s "object-to-string, wasn't given object"
 
 
@@ -126,7 +107,7 @@ let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let props = SState.Heap.find_p label s in
     if props.more_but_fields <> None then
-      SState.res_op1 ~typ:TRef "own-property-names" v s
+      SState.res_op1 ~typ:tRef "own-property-names" v s
     else
       let add_name name _ (i, m) =
 	let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
@@ -134,12 +115,8 @@ let get_own_property_names ~pos v s = match v with
       in
       let _, fields = IdMap.fold add_name props.fields (0, IdMap.empty) in
       SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "own-property-names"
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "own-property-names" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "own-property-names" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "own-property-names" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "own-property-names" v s
 | _ -> SState.throw_str ~pos s "own-property-names"
 
 let prevent_extensions ~pos v s = match v with
@@ -147,12 +124,8 @@ let prevent_extensions ~pos v s = match v with
     let internal_props = SState.Heap.find_ip label s in
     let s = SState.Heap.update_ip label { internal_props with extensible = false } s in
     SState.res_v v s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "prevent-extensions"
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "prevent-extensions" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prevent-extensions" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "prevent-extensions" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "prevent-extensions" v s
 | _ -> SState.throw_str ~pos s "prevent-extensions"
 
 let prim_to_bool ~pos v s = match v with
@@ -166,11 +139,12 @@ let prim_to_bool ~pos v s = match v with
     | CString x -> SState.res_bool (String.length x <> 0) s
     | CRegexp _ -> SState.res_true s
     end
-| SSymb (TBool, _) -> SState.res_v v s
-| SSymb (TInt, _) -> SState.res_op1 ~typ:TBool "int->bool" v s
-| SSymb (TNum, _) -> SState.res_op1 ~typ:TBool "num->bool" v s
-| SSymb (TStr, _) -> SState.res_op1 ~typ:TBool "str->bool" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "prim->bool" v s
+| SSymb (TV (TP TBool), _) -> SState.res_v v s
+| SSymb (TV (TP (TN TInt)), _) -> SState.res_op1 ~typ:tBool "int->bool" v s
+| SSymb (TV (TP (TN TNum)), _) -> SState.res_op1 ~typ:tBool "num->bool" v s
+| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tBool "str->bool" v s
+| SSymb (TV (TP _), _) -> SState.res_op1 ~typ:tBool "prim->bool" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "prim->bool" v s
 | _ -> SState.res_true s
 
 let prim_to_num ~pos v s = match v with
@@ -185,11 +159,10 @@ let prim_to_num ~pos v s = match v with
     | CString x -> SState.res_num (try float_of_string x with Failure "float_of_string" -> nan) s
     | CRegexp _ -> SState.err ~pos s "prim_to_num of regexp"
     end
-| SSymb (TBool, _) -> SState.res_op1 ~typ:TInt "bool->num" v s
-| SSymb (TInt, _)
-| SSymb (TNum, _) -> SState.res_v v s
-| SSymb (TStr, _) -> SState.res_op1 ~typ:TAny "str->num" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prim->num" v s
+| SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tInt "bool->num" v s
+| SSymb (TV (TP (TN _)), _) -> SState.res_v v s
+| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tA "str->num" v s
+| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.res_op1 ~typ:tA "prim->num" v s
 | _ -> SState.throw_str ~pos s "prim_to_num"
 
 let prim_to_str ~pos v s = match v with
@@ -203,20 +176,19 @@ let prim_to_str ~pos v s = match v with
     | CBool b -> SState.res_str (string_of_bool b) s
     | CRegexp _ -> SState.err ~pos s "Error [prim_to_str] regexp NYI"
     end
-| SSymb (TBool, _) -> SState.res_op1 ~typ:TStr "bool->str" v s
-| SSymb (TInt, _) -> SState.res_op1 ~typ:TStr "int->str" v s
-| SSymb (TNum, _) -> SState.res_op1 ~typ:TStr "num->str" v s
-| SSymb (TStr, _) -> SState.res_v v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "prim->str" v s
+| SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tStr "bool->str" v s
+| SSymb (TV (TP (TN TInt)), _) -> SState.res_op1 ~typ:tStr "int->str" v s
+| SSymb (TV (TP (TN TNum)), _) -> SState.res_op1 ~typ:tStr "num->str" v s
+| SSymb (TV (TP TStr), _) -> SState.res_v v s
+| SSymb (TV (TP _), _) -> SState.res_op1 ~typ:tStr "prim->str" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "prim->str" v s
 | _ -> SState.throw_str ~pos s "prim_to_str"
 
 let is_primitive ~pos v s = match v with
 | SConst _ -> SState.res_true s
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.res_true s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TBool "primitive?" v s
+| SSymb (TV (TP _), _) -> SState.res_true s
+| SSymb (TV TVAny, _) -> SState.res_op1 ~typ:tBool "primitive?" v s
+| SSymb (TA, _) -> SState.res_op1 ~typ:tA "primitive?" v s
 | _ -> SState.res_false s
 
 let print ~pos v s = s |> SState.Output.print v |> SState.singleton
@@ -226,12 +198,12 @@ let surface_typeof ~pos v s = match v with
 | SHeapLabel label ->
     let { code; _ } = SState.Heap.find_ip label s in
     SState.res_str (if code = None then "object" else "function") s
-| SSymb (TBool, _) -> SState.res_str "boolean" s
-| SSymb (TInt, _)
-| SSymb (TNum, _) -> SState.res_str "number" s
-| SSymb (TStr, _) -> SState.res_str "string" s
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TStr "ref-surface-typeof" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "surface-typeof" v s
+| SSymb (TV (TP TBool), _) -> SState.res_str "boolean" s
+| SSymb (TV (TP (TN _)), _) -> SState.res_str "number" s
+| SSymb (TV (TP TStr), _) -> SState.res_str "string" s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tStr "ref-surface-typeof" v s
+| SSymb (TV _, _) -> SState.res_op1 ~typ:tStr "surface-typeof" v s
+| SSymb (TA, _) -> SState.res_op1 ~typ:tA "surface-typeof" v s
 | SClosure _ -> SState.throw_str ~pos s "surface-typeof"
 
 let get_property_names ~pos v s = match v with
@@ -260,9 +232,9 @@ let get_property_names ~pos v s = match v with
     | None -> set_opt
     in	
     begin match all_protos_props label with
-    | None -> SState.res_op1 ~typ:TRef "property-names" v s
+    | None -> SState.res_op1 ~typ:tRef "property-names" v s
     | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
-      | None -> SState.res_op1 ~typ:TRef "property-names" v s
+      | None -> SState.res_op1 ~typ:tRef "property-names" v s
       | Some name_set ->
 	  let add_name name (i, m) =
 	    let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
@@ -271,12 +243,8 @@ let get_property_names ~pos v s = match v with
 	  let _, fields = IdSet.fold add_name name_set (0, IdMap.empty) in
 	  SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
     end
-| SSymb (TBool, _)
-| SSymb (TInt, _)
-| SSymb (TNum, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "get-property-names"
-| SSymb (TRef, _) -> SState.res_op1 ~typ:TRef "property-names" v s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "property-names" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "property-names" v s
+| SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "property-names" v s
 | _ -> SState.throw_str ~pos s "get-property-names"
 
 let _symbol f_name typ ~pos v s =
@@ -287,33 +255,32 @@ let _symbol f_name typ ~pos v s =
   else
     failwith (sprintf "Primitive \"%s\" used with -no-symb option" f_name)
 
-let symbol = _symbol "symbol" TAny
-let symbol_bool = _symbol "symbol_bool" TBool
-let symbol_int = _symbol "symbol_int" TInt
-let symbol_num = _symbol "symbol_num" TNum
-let symbol_string = _symbol "symbol_string" TStr
-let symbol_ref = _symbol "symbol_ref" TRef
+let symbol = _symbol "symbol" tVAny
+let symbol_bool = _symbol "symbol_bool" tBool
+let symbol_int = _symbol "symbol_int" tInt
+let symbol_num = _symbol "symbol_num" tNum
+let symbol_string = _symbol "symbol_string" tStr
+let symbol_ref = _symbol "symbol_ref" tRef
 
 let to_int32 ~pos v s = match v with
-| SSymb (TInt, _)
+| SSymb (TV (TP (TN TInt)), _)
 | SConst (CInt _) -> SState.res_v v s
 | SConst (CNum f) -> SState.res_int (int_of_float f) s
-| SSymb (TNum, _) -> SState.res_op1 ~typ:TInt "num->int32" v s
-| SSymb (TBool, _)
-| SSymb (TStr, _) -> SState.throw_str ~pos s "to-int"
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TAny "to-int32" v s
+| SSymb (TV (TP (TN TNum)), _) -> SState.res_op1 ~typ:tInt "num->int32" v s
+| SSymb (TV (TP (TN _)), _) -> SState.res_op1 ~typ:tInt "to-int32" v s
+| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.res_op1 ~typ:tA "to-int32" v s
 | _ -> SState.throw_str ~pos s "to-int"
 
 let typeof ~pos v s = match v with
 | SConst c -> const_typeof ~fname:"typeof" ~pos c s
 | SHeapLabel _ -> SState.res_str "object" s
 | SClosure _ -> SState.res_str "lambda" s
-| SSymb (TBool, _) -> SState.res_str "boolean" s
-| SSymb (TInt, _)
-| SSymb (TNum, _) -> SState.res_str "number" s
-| SSymb (TStr, _) -> SState.res_str "string" s
-| SSymb (TRef, _) -> SState.res_str "object" s
-| SSymb (TAny, _) -> SState.res_op1 ~typ:TStr "typeof" v s
+| SSymb (TV (TP TBool), _) -> SState.res_str "boolean" s
+| SSymb (TV (TP (TN _)), _) -> SState.res_str "number" s
+| SSymb (TV (TP TStr), _) -> SState.res_str "string" s
+| SSymb (TV TRef, _) -> SState.res_str "object" s
+| SSymb (TV _, _) -> SState.res_op1 ~typ:tStr "typeof" v s
+| SSymb (_, _) -> SState.res_op1 ~typ:tA "typeof" v s
 
 let err_op1 ~op ~pos _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of unary operator \"%s\"" op)
 
@@ -358,12 +325,14 @@ let arith ~pos op2_op i_op f_op v1 v2 s = match v1, v2 with
 | SConst (CNum f1), SConst (CNum f2) -> SState.res_num (f_op f1 f2) s
 | SConst (CNum f1), SConst (CInt i2) -> SState.res_num (f_op f1 (float_of_int i2)) s
 | SConst (CInt i1), SConst (CNum f2) -> SState.res_num (f_op (float_of_int i1) f2) s
-| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _)) ->
-    SState.res_op2 ~typ:TInt op2_op v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
-    SState.res_op2 ~typ:TNum op2_op v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
-    SState.res_op2 ~typ:TAny op2_op v1 v2 s
+| (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)) ->
+    SState.res_op2 ~typ:tInt op2_op v1 v2 s
+| (SConst (CInt _) | SSymb (TV (TP (TN (TInt | TNAny))), _)), (SConst (CInt _) | SSymb (TV (TP (TN (TInt | TNAny))), _)) ->
+    SState.res_op2 ~typ:tNAny op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
+    SState.res_op2 ~typ:tNum op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)), (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA op2_op v1 v2 s
 | _ -> SState.throw_str ~pos s "arithmetic operator"
 
 let arith_sum ~pos v1 v2 s = arith ~pos "+" (+) (+.) v1 v2 s
@@ -373,9 +342,9 @@ let arith_sub ~pos v1 v2 s = arith ~pos "-" (-) (-.) v1 v2 s
 let arith_mul ~pos v1 v2 s = arith ~pos "*" ( * ) ( *. ) v1 v2 s
 
 let arith0 ~pos op2_op i_op f_op def v1 v2 s = match v1, v2 with
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), SConst (CInt 0 | CNum 0.0) ->
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), SConst (CInt 0 | CNum 0.0) ->
     SState.res_num def s
-| SSymb (TAny, _), SConst (CInt 0 | CNum 0.0) ->
+| SSymb ((TV (TP TPAny | TVAny) | TA), _), SConst (CInt 0 | CNum 0.0) ->
     SState.res_num def s (* simplified: no thrown error is v1 is not a number *)
 (* | SSymb _ -> resl_rv_if s (Mk.sop2 "=" v2 (num 0.0)) (SValue (num def)) (SValue (Mk.sop2 op2_op v1 v2)) *)
 | _ -> arith ~pos op2_op i_op f_op v1 v2 s
@@ -389,10 +358,10 @@ let bitwise op2_op i_op ~pos v1 v2 s = match v1, v2 with
 | SConst (CInt i1), SConst (CNum n2) -> SState.res_int (i_op i1 (int_of_float n2)) s
 | SConst (CNum n1), SConst (CInt i2) -> SState.res_int (i_op (int_of_float n1) i2) s
 | SConst (CNum n1), SConst (CNum n2) -> SState.res_int (i_op (int_of_float n1) (int_of_float n2)) s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
-    SState.res_op2 ~typ:TInt op2_op v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
-    SState.res_op2 ~typ:TAny op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
+    SState.res_op2 ~typ:tInt op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)), (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA op2_op v1 v2 s
 | _ -> SState.throw_str ~pos s (sprintf "expected numbers, got %s and %s" (ToString.svalue s v1) (ToString.svalue s v2))
 
 let bitwise_and ~pos v1 v2 s = bitwise "&" (land) ~pos v1 v2 s
@@ -412,10 +381,10 @@ let arith_cmp op2_op i_cmp f_cmp ~pos v1 v2 s = match v1, v2 with
 | SConst (CInt i1), SConst (CNum n2) -> SState.res_bool (f_cmp (float_of_int i1) n2) s
 | SConst (CNum n1), SConst (CInt i2) -> SState.res_bool (f_cmp n1 (float_of_int i2)) s
 | SConst (CNum n1), SConst (CNum n2) -> SState.res_bool (f_cmp n1 n2) s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
-    SState.res_op2 ~typ:TBool op2_op v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum | TAny), _)) ->
-    SState.res_op2 ~typ:TAny op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
+    SState.res_op2 ~typ:tBool op2_op v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)), (SConst (CInt _ | CNum _) | SSymb ((TV (TP (TN _ | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA op2_op v1 v2 s
 | _ -> SState.throw_str ~pos s (sprintf "expected numbers, got %s and %s" (ToString.svalue s v1) (ToString.svalue s v2))
 
 let arith_lt ~pos v1 v2 s = arith_cmp "<" (<) (<) ~pos v1 v2 s
@@ -445,43 +414,51 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
     | CInt i, CNum f -> float_of_int i = f
     | _ -> false
     in SState.res_bool b s
-| (SConst (CBool _) | SSymb (TBool, _)), (SConst (CBool _) | SSymb (TBool, _))
-| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _))
-| (SConst (CNum _) | SSymb (TNum, _)), (SConst (CNum _) | SSymb (TNum, _))
-| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
-    SState.res_op2 ~typ:TBool "=" v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
-    SState.res_op2 ~typ:TBool "stx=" v1 v2 s
-| (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)), (SConst _ | SSymb ((TBool | TInt | TNum | TStr), _)) ->
-    SState.res_op2 ~typ:TBool "abs=" v1 v2 s
-| (SConst _ | SSymb _), (SConst _ | SSymb _) ->
-    SState.res_op2 ~typ:TAny "abs=" v1 v2 s
+| (SConst (CBool _) | SSymb (TV (TP TBool), _)), (SConst (CBool _) | SSymb (TV (TP TBool), _))
+| (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _))
+| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _))
+| (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
+    SState.res_op2 ~typ:tBool "=" v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
+    SState.res_op2 ~typ:tBool "stx=" v1 v2 s
+| (SConst _ | SSymb (TV (TP _), _)), (SConst _ | SSymb (TV (TP _), _)) ->
+    SState.res_op2 ~typ:tBool "abs=" v1 v2 s
+| (SConst _ | SSymb ((TV TVAny | TA), _)), (SConst _ | SSymb ((TV TVAny | TA), _)) ->
+    SState.res_op2 ~typ:tA "abs=" v1 v2 s
 | _ -> SState.throw_str ~pos s "expected primitive constant"
 
 let stx_eq ~pos v1 v2 s = match v1, v2 with
+| SClosure _, _ | _, SClosure _ -> assert false
   (* TODO: check if it's ok with null, undefined, nan, +/- 0.0, ... *)
 | v1, v2 when v1 == v2 || v1 = v2 -> SState.res_true s 
 | SConst (CNum n), SConst (CInt i)
 | SConst (CInt i), SConst (CNum n) -> SState.res_bool (float_of_int i = n) s
-| SConst _, SConst _ -> SState.res_false s
-| (SConst (CBool _) | SSymb (TBool, _)), (SConst (CBool _) | SSymb (TBool, _))
-| (SConst (CInt _) | SSymb (TInt, _)), (SConst (CInt _) | SSymb (TInt, _))
-| (SConst (CNum _) | SSymb (TNum, _)), (SConst (CNum _) | SSymb (TNum, _))
-| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
-    SState.res_op2 ~typ:TBool "=" v1 v2 s
-| (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)), (SConst (CInt _ | CNum _) | SSymb ((TInt | TNum), _)) ->
-    SState.res_op2 ~typ:TBool "stx=" v1 v2 s
-| SSymb (TAny, _), (SConst _ | SSymb _)
-| (SConst _ | SSymb _), SSymb (TAny, _) ->
-    SState.res_op2 ~typ:TAny "stx=" v1 v2 s
+| (SConst _ | SHeapLabel _), (SConst _ | SHeapLabel _) -> SState.res_false s
+| (SConst (CBool _) | SSymb (TV (TP TBool), _)), (SConst (CBool _) | SSymb (TV (TP TBool), _))
+| (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _))
+| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _))
+| (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _))
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) ->
+    SState.res_op2 ~typ:tBool "=" v1 v2 s
+| (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
+    SState.res_op2 ~typ:tBool "stx=" v1 v2 s
+| (SConst _ | SSymb (TV (TP _), _)), SSymb (TV (TP TPAny | TVAny), _)
+| SSymb (TV (TP TPAny | TVAny), _), (SConst _ | SSymb (TV (TP _), _))
+| (SHeapLabel _ | SSymb (TV TRef, _)), SSymb (TV TVAny, _)
+| SSymb (TV TVAny, _), (SHeapLabel _ | SSymb (TV TRef, _))
+| SSymb (TV TVAny, _), SSymb (TV TVAny, _) ->
+    SState.res_op2 ~typ:tBool "stx=" v1 v2 s
+| SSymb (TA, _), _
+| _, SSymb (TA, _) ->
+    SState.res_op2 ~typ:tA "stx=" v1 v2 s
 | _ -> SState.res_false s
 
 let string_plus ~pos v1 v2 s = match v1, v2 with
 | SConst (CString x1), SConst (CString x2) -> SState.res_str (x1 ^ x2) s
-| (SConst (CString _) | SSymb (TStr, _)), (SConst (CString _) | SSymb (TStr, _)) ->
-    SState.res_op2 ~typ:TStr "string+" v1 v2 s
-| (SConst (CString _) | SSymb ((TStr | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
-    SState.res_op2 ~typ:TAny "string+" v1 v2 s
+| (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
+    SState.res_op2 ~typ:tStr "string+" v1 v2 s
+| (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA "string+" v1 v2 s
 | _ -> SState.throw_str ~pos s "string concatenation"
 
 let symbol_object ~pos v1 v2 s = match v1, v2 with
@@ -506,7 +483,7 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
     | Some but_fields ->
 	let has s = (* todo: more_fields initializer instead of symbol_any *)
 	  let sid = SId.from_string ~fresh:true field in
-	  let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+	  let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 	  let props = { props with fields = IdMap.add field prop fields } in
 	  let s = SState.Heap.update_p label props s in
 	  SState.res_true s
@@ -516,12 +493,12 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
 	  let s = SState.Heap.update_p label props s in
 	  SState.res_false s
 	in
-	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" v1 v2) s
+	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
     end
-| (SHeapLabel _ | SSymb (TRef, _)), (SConst (CString _) | SSymb (TStr, _)) ->
-    SState.res_op2 ~typ:TBool "has-own-property?" v1 v2 s
-| (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
-    SState.res_op2 ~typ:TAny "has-own-property?" v1 v2 s
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
+    SState.res_op2 ~typ:tBool "has-own-property?" v1 v2 s
+| (SHeapLabel _ | SSymb ((TV (TRef | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA "has-own-property?" v1 v2 s
 | _ -> SState.throw_str ~pos s "has-own-property?"
 
 (*
@@ -565,7 +542,7 @@ let has_property ~pos v1 v2 s = match v1, v2 with
 	  | Some but_fields ->
 	      let has s = (* todo: cf todo of has_own_property *)
 		let sid = SId.from_string ~fresh:true field in
-		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:TAny sid) in
+		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 		let props = { props with fields = IdMap.add field prop fields } in
 		let s = SState.Heap.update_p label props s in
 		SState.res_true s
@@ -579,11 +556,13 @@ let has_property ~pos v1 v2 s = match v1, v2 with
 		    SState.res_false s
 		| Some lab -> symbolic_has_prop lab
 	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:TBool "has-own-property?" v1 v2) s
+	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
     in
     symbolic_has_prop label
-| (SHeapLabel _ | SSymb ((TRef | TAny), _)), (SConst (CString _) | SSymb ((TStr | TAny), _)) ->
-    SState.res_op2 ~typ:TBool "has-property?" v1 v2 s
+| (SHeapLabel _ | SSymb (TV (TRef | TVAny), _)), (SConst (CString _) | SSymb (TV (TP (TStr | TPAny) | TVAny), _)) ->
+    SState.res_op2 ~typ:tBool "has-property?" v1 v2 s
+| (SHeapLabel _ | SSymb ((TV (TRef | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
+    SState.res_op2 ~typ:tA "has-property?" v1 v2 s
 | _ -> SState.res_false s
 
 let err_op2 ~op ~pos _ _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
