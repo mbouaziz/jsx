@@ -53,33 +53,8 @@ struct
     let vErr = z "VErr"
     let mk_string = z "mk-string"
 
-    let isUndefined = z "is_VUndefined"
-    let isNull = z "is_VNull"
-    let isBool = z "is_VBool"
-    let isInt = z "is_VInt"
-    let isNum = z "is_VNum"
-    let isString = z "is_VString"
-    let isErr = z "is_VErr"
-
     let valToBool = z "ValToBool"
     let notValToBool = z "NotValToBool"
-    let is_callable = z "is-callable"
-    let is_primitive = z "primitive?"
-    let int_to_bool = z "int->bool"
-    let num_to_bool = z "num->bool"
-    let str_to_bool = z "str->bool"
-    let prim_to_bool = z "prim->bool"
-    let prim_to_num = z "prim->num"
-    let prim_to_str = z "prim->str"
-    let surface_typeof = z "surface-typeof"
-    let typeof = z "typeof"
-
-    let abs_eq = z "abs="
-    let stx_eq = z "stx="
-    let string_plus = z "string+"
-    let add = z "js+"
-    let sub = z "js-"
-    let get_field = z "get-field"
   end
 end
 
@@ -137,10 +112,10 @@ struct
       let args = Z3.get_app_args ctx app in
       if f_eq fd F.mk_string then
 	let args_str = Array.map ast_to_string args in
-	let len = int_of_string (args_str.(0)) in
+	let len_str = args_str.(0) in
 	let bi = Big_int.big_int_of_string (args_str.(1)) in
 	let s = String.of_big_int bi in
-	sprintf "%S[%d]" s len
+	sprintf "%S[%s]" s len_str
       else if f_eq fd F.vUndefined then
 	"undefined"
       else if f_eq fd F.vNull then
@@ -356,30 +331,11 @@ struct
       | CString s -> SMT.mk_appf F.vString [| StrRepr.mk s |]
       | CRegexp _ -> assert false
 
-    let of_op1 op x =
-      SMT.mk_appf (F.z op) [| x |]
- (* match op with *)
-    (* | "is-callable" -> SMT.mk_appf F.is_callable [| x |] *)
-    (* | "primitive?" -> SMT.mk_appf F.is_primitive [| x |] *)
-    (* | "prim->num" -> SMT.mk_appf F.prim_to_num [| x |] *)
-    (* | "prim->str" -> SMT.mk_appf F.prim_to_str [| x |] *)
-    (* | "surface-typeof" -> SMT.mk_appf F.surface_typeof [| x |] *)
-    (* | "typeof" -> SMT.mk_appf F.typeof [| x |] *)
-    (* | _ -> failwith (sprintf "No SMT implementation for unary operator \"%s\"" op) *)
+    let of_op1 op x = SMT.mk_appf (F.z op) [| x |]
 
-    let of_op2 op x y =
-      SMT.mk_appf (F.z op) [| x ; y |]
- (* match op with *)
-    (* | "abs=" -> SMT.mk_appf F.abs_eq [| x ; y |] *)
-    (* | "stx=" -> SMT.mk_appf F.stx_eq [| x ; y |] *)
-    (* | "string+" -> SMT.mk_appf F.string_plus [| x ; y |] *)
-    (* | "+" -> SMT.mk_appf F.add [| x ; y |] *)
-    (* | "-" -> SMT.mk_appf F.sub [| x ; y |] *)
-    (* | "get-field" -> SMT.mk_appf F.get_field [| x ; y |] *)
-    (* | _ -> failwith (sprintf "No SMT implementation for binary operator \"%s\"" op) *)
+    let of_op2 op x y = SMT.mk_appf (F.z op) [| x ; y |]
 
-    let of_op3 op x y z = match op with
-    | _ -> failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
+    let of_op3 op x y z = failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
 
     let of_app v l = failwith "No SMT implementation for symbolic applications"
 

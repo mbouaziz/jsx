@@ -53,7 +53,7 @@ let eval ~pos v s = match v with
 	    |> SState.map_unit SState.Env.pop
     end
 | SSymb (TV (TP TStr), _)
-| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.err ~pos s "Eval of a symbolic value" (* SState.res_op1 "eval" v s *)
+| SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.err ~pos s "Eval of a symbolic value"
 | _ -> SState.throw_str ~pos s "eval"
 
 let fail ~pos v s = SState.res_false s (* no such thing in my implementation *)
