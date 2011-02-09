@@ -32,7 +32,7 @@ module Mk = SMTLib2Syntax.Mk
 %token GetUnsatCore GetValue GetAssignment GetOption
 %token GetInfo Exit
 
-%token DefineSorts DeclareDatatypes Define
+%token DefineSorts DeclareDatatypes Define Macro
 
 %token LParen RParen
 %token LSqBracket RSqBracket Colon
@@ -136,6 +136,8 @@ command:
   | LParen Exit RParen { Mk.Cmd.app_exit ($startpos, $endpos) () }
   | LParen Define LParen x=Symbol s=sorted_var* RParen t=term RParen { Mk.Cmd.define ($startpos, $endpos) x s t }
   | LParen Define x=Symbol t=term RParen { Mk.Cmd.define ($startpos, $endpos) x [] t }
+  | LParen Macro LParen x=Symbol s=Symbol* RParen t=term RParen { Mk.Cmd.macro ($startpos, $endpos) x s t }
+  | LParen Macro x=Symbol t=term RParen { Mk.Cmd.macro ($startpos, $endpos) x [] t }
   | LParen DefineSorts LParen s=shorthand_sort* RParen RParen { Mk.Cmd.define_sorts ($startpos, $endpos) s }
   | LParen DeclareDatatypes LParen d=datatype* RParen RParen { Mk.Cmd.declare_datatypes ($startpos, $endpos) d }
 

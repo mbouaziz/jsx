@@ -116,6 +116,44 @@ let tRef = TV TRef
 let tVAny = TV TVAny
 let tA = TA
 
+module Typ =
+struct
+
+  let cmp t1 t2 = match t1, t2 with
+  | t1, t2 when t1 = t2 -> Some 0
+  | _, TA
+  | TV _, TV TVAny
+  | TV (TP _), TV (TP TPAny)
+  | TV (TP (TN _)), TV (TP (TN TNAny)) -> Some (-1)
+  | TA, _
+  | TV TVAny, TV _
+  | TV (TP TPAny), TV (TP _)
+  | TV (TP (TN TNAny)), TV (TP (TN _)) -> Some 1
+  | _, _ -> None
+
+  type ex_typ = TUndef | TNull | T of ssymb_type
+
+  let prim_types = [ tBool; tInt; tNum; tStr; tRef ]
+
+  let abs_types = [ tNAny; tPAny; tVAny; tA ] (* must respect the partial order *)
+
+  let types = prim_types @ abs_types (* idem *)
+
+  let ex_types = TUndef::TNull::(List.map (fun t -> T t) types)
+
+  type f_type = ex_typ array
+
+  module TypMap =
+  struct
+    module FTyp =
+    struct
+      type t = f_type
+      let compare = Pervasives.compare
+    end
+    include Map.Make(FTyp)
+  end
+end
+
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t

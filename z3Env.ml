@@ -3,12 +3,14 @@ open MyPervasives
 open SMTLib2Syntax
 
 type func_decl = Z3.func_decl
-type macro = Z3.ast array -> Z3.ast
+type macro_ast = Z3.ast array -> Z3.ast
 
 type func =
   | FuncDecl of func_decl
-  | Macro of macro
-  | MacroConst of Z3.ast
+  | MacroAst of macro_ast
+  | ConstAst of Z3.ast
+  | MacroEx of macro_ex
+and macro_ex = func array -> Z3.ast
 
 type loaded_env = {
   context : Z3.context ;
@@ -65,9 +67,11 @@ struct
     | s, [] -> s
     | s, l -> sprintf "%s[%s]" s (String.concat ":" (List.map string_of_index l))
 
-  let push_func_decl symb f env = { env with funs = StringMmap.push symb (FuncDecl f) env.funs }
-  let push_macro symb f env = { env with funs = StringMmap.push symb (Macro f) env.funs }
-  let push_macro_const symb ast env = { env with funs = StringMmap.push symb (MacroConst ast) env.funs }
+  let push_fun symb f env = { env with funs = StringMmap.push symb f env.funs }
+  let push_func_decl symb f env = push_fun symb (FuncDecl f) env
+  let push_macro_ast symb f env = push_fun symb (MacroAst f) env
+  let push_const_ast symb ast env = push_fun symb (ConstAst ast) env
+  let push_macro_ex symb f env = push_fun symb (MacroEx f) env
   let pop_fun symb env = { env with funs = StringMmap.
 pop symb env.funs }
 
@@ -119,6 +123,7 @@ pop symb env.funs }
     | ("true", []), [] -> Z3.mk_true env.context
     | ("false", []), [] -> Z3.mk_false env.context
     | ("=", []), [x; y] -> Z3.mk_eq env.context x y
+    | ("<>", []), ast_list
     | ("distinct", []), ast_list -> Z3.mk_distinct env.context (Array.of_list ast_list)
     | ("not", []), [x] -> Z3.mk_not env.context x
     | ("if", []), [i;t;e]
@@ -210,8 +215,9 @@ pop symb env.funs }
 	assert (idx_list = []);
 	match StringMmap.find_opt symb env.funs with
 	| Some (FuncDecl f) -> Z3.mk_app env.context f (Array.of_list ast_list)
-	| Some (MacroConst ast) -> assert (ast_list = []); ast
-	| Some (Macro f) -> f (Array.of_list ast_list)
+	| Some (ConstAst ast) -> assert (ast_list = []); ast
+	| Some (MacroAst f) -> f (Array.of_list ast_list)
+	| Some (MacroEx f) -> f (Array.of_list ast_list |> Array.map (fun a -> ConstAst a))
 	| None -> failwith (sprintf "Application of unknown function \"%s\" of arity %d" (string_of_id (symb, idx_list)) (List.length ast_list))
 
   and ast_of_quant env quant sv_list term =
@@ -342,15 +348,15 @@ pop symb env.funs }
     if sorted_var_list = [] then
       let ast = ast_of_term env term in
       _log (lazy (sprintf "(define %s %s)\n" symb (Z3.ast_to_string env.context ast)));
-      push_macro_const symb ast env
+      push_const_ast symb ast env
     else
       (* todo: check bound var at creation time *)
       let symb_arr = Array.of_list (List.map fst sorted_var_list) in
       let arity = Array.length symb_arr in
       let f ast_arr =
 	if Array.length ast_arr <> arity then
-	  failwith (sprintf "Macro %s called with %d arguments instead of %d\n" symb (Array.length ast_arr) arity);
-	let env = Array.fold_leftr2 push_macro_const symb_arr ast_arr env in
+	  failwith (sprintf "Define %s called with %d arguments instead of %d\n" symb (Array.length ast_arr) arity);
+	let env = Array.fold_leftr2 push_const_ast symb_arr ast_arr env in
         ast_of_term env term
       in
       _log (lazy (
@@ -363,13 +369,33 @@ pop symb env.funs }
 		ToString.sorted_var_list env svl in
 	      let str_term =
 		let symb_list = List.map fst sorted_var_list in
-		let env = List.fold_leftr2 push_macro_const symb_list ast_list env in
+		let env = List.fold_leftr2 push_const_ast symb_list ast_list env in
 		ast_of_term env term
 	        |> Z3.ast_to_string env.context
 		|> String.interline "  "
 	      in
 	      sprintf "(define (%s %s)\n  %s)\n" symb str_svl str_term));
-      push_macro symb f env
+      push_macro_ast symb f env
+
+  let macro env (symb, var_list, term) =
+    if var_list = [] then
+      let ast = ast_of_term env term in
+      _log (lazy (sprintf "(macro %s %s)\n" symb (Z3.ast_to_string env.context ast)));
+      push_const_ast symb ast env
+    else
+      (* todo: check bound var at creation time *)
+      let symb_arr = Array.of_list var_list in
+      let arity = Array.length symb_arr in
+      let f func_arr =
+	if Array.length func_arr <> arity then
+	  failwith (sprintf "Macro %s called with %d arguments instead of %d\n" symb (Array.length func_arr) arity);
+	let env = Array.fold_leftr2 push_fun symb_arr func_arr env in
+        ast_of_term env term
+      in
+      _log (lazy (
+	      let str_vl = String.concat ", " var_list in
+	      sprintf ";(macro (%s %s) <some term>)\n" symb str_vl));
+      push_macro_ex symb f env
 
   (* transforms
      (define-fun f ((x1 s1) ... (xN sN)) s t)
@@ -402,6 +428,7 @@ pop symb env.funs }
     | DefineFun f -> define_fun env f
     | DefineSorts l -> define_sorts env l
     | DeclareDatatypes l -> declare_datatypes env l
+    | Macro f -> macro env f
     | _ -> assert false (* NYI *)
 
   let of_script env script = List.fold_left of_command env script

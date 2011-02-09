@@ -71,6 +71,7 @@ type command =
   | Define of (symbol * sorted_var list * term)
   | DefineSorts of shorthand_sort list
   | DeclareDatatypes of datatype list
+  | Macro of (symbol * symbol list * term)
 
 type script = command list
 
@@ -186,6 +187,7 @@ struct
     let define pos x sl t = Define (x, sl, t)
     let define_sorts pos s = DefineSorts s
     let declare_datatypes pos d = DeclareDatatypes d
+    let macro pos x sl t = Macro (x, sl, t)
   end
 
   module Script =

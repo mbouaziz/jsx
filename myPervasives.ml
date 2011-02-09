@@ -61,6 +61,27 @@ struct
       | [], [], [] -> acc
       | h1::t1, h2::t2, h3::t3 -> fold_left3 f (f acc h1 h2 h3) t1 t2 t3
       | _ -> raise (Invalid_argument "fold_left3")
+
+(*
+product [1;2] [A;B] gives [(1, A); (1, B); (2, A); (2, B)]
+*)
+  let product list1 list2 =
+    let rec aux l1 l2 acc = match l1, l2 with
+    | [], _ -> acc
+    | _::l1, [] -> aux l1 list2 acc
+    | x::_, y::l2 -> aux l1 l2 ((x, y)::acc)
+    in rev (aux list1 list2 [])
+(*
+tr_product [1;2] [A;B] gives [(1, A); (2, A); (1, B); (2, B)]
+*)
+  let tr_product list1 list2 =
+    let rec aux l1 l2 acc = match l1, l2 with
+    | _, [] -> acc
+    | [], _::l2 -> aux list1 l2 acc
+    | x::l1, y::_ -> aux l1 l2 ((x, y)::acc)
+    in rev (aux list1 list2 []);;
+
+  let assoc_flip l = List.map (fun (x,y)->y,x) l
 end
 
 module Big_int =
@@ -94,8 +115,21 @@ module String =
 struct
   include String
 
+  let index_or_zero s c = try index s c with Not_found -> 0
+  let index_or_length s c = try index s c with Not_found -> length s
   let after s i = sub s i (length s - i)
+  let safe_after s i = if i < 0 then s else if i >= length s then "" else after s i
   let left s n = sub s 0 (min n (length s))
+  let between s i1 i2 = sub s (i1+1) (max 0 (i2-i1-1))
+
+  let before_char s c = try sub s 0 (index s c) with Not_found -> ""
+  let after_char s c = try after s (index s c + 1) with Not_found -> ""
+  let between_chars s c1 c2 = try
+    let i1 = index s c1 in
+    let i2 = try index_from s (i1+1) c2 with
+      Not_found -> length s in
+    sub s (i1+1) (i2-i1-1) with
+    _ -> ""
 
   let split2 char_sep s =
     try let i = index s char_sep in left s i, after s (i+1) with
@@ -110,6 +144,19 @@ struct
     if s = "" then [] else aux 0
 
   let interline ?(sep='\n') ins = nsplit_char sep @> concat (sprintf "%c%s" sep ins)
+
+  let to_array s = Array.init (length s) (fun i -> s.[i])
+
+  let of_array a =
+    let l = Array.length a in
+    let s = create l in
+    for i = 0 to l - 1 do s.[i] <- a.(i) done;
+    s
+
+  let map f s = for i = 0 to length s - 1 do s.[i] <- f s.[i] done
+  let map_copy f s = let s = copy s in map f s; s
+
+  let repl_char c1 c2 s = map_copy (fun c -> if c = c1 then c2 else c) s    
 
   let for_all p s =
     let res = ref true in

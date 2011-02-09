@@ -14,5 +14,9 @@ if (s === "number")
     print("Number");
 if (s === "string")
     print("String");
+if (s === "function")
+    print("Function");
+if (s === "object")
+    print("Object");
 if (s === "cow")
     print("Cow");

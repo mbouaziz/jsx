@@ -159,9 +159,9 @@ let prim_to_num ~pos v s = match v with
     | CString x -> SState.res_num (try float_of_string x with Failure "float_of_string" -> nan) s
     | CRegexp _ -> SState.err ~pos s "prim_to_num of regexp"
     end
-| SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tInt "bool->num" v s
+| SSymb (TV (TP TBool), _) -> SState.res_op1 ~typ:tInt "prim->num" v s
 | SSymb (TV (TP (TN _)), _) -> SState.res_v v s
-| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tNAny "str->num" v s
+| SSymb (TV (TP TStr), _) -> SState.res_op1 ~typ:tNAny "prim->num" v s
 | SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.res_op1 ~typ:tA "prim->num" v s
 | _ -> SState.throw_str ~pos s "prim_to_num"
 
@@ -201,7 +201,7 @@ let surface_typeof ~pos v s = match v with
 | SSymb (TV (TP TBool), _) -> SState.res_str "boolean" s
 | SSymb (TV (TP (TN _)), _) -> SState.res_str "number" s
 | SSymb (TV (TP TStr), _) -> SState.res_str "string" s
-| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tStr "ref-surface-typeof" v s
+| SSymb (TV TRef, _) -> SState.res_op1 ~typ:tStr "surface-typeof" v s
 | SSymb (TV _, _) -> SState.res_op1 ~typ:tStr "surface-typeof" v s
 | SSymb (TA, _) -> SState.res_op1 ~typ:tA "surface-typeof" v s
 | SClosure _ -> SState.throw_str ~pos s "surface-typeof"
@@ -255,12 +255,14 @@ let _symbol f_name typ ~pos v s =
   else
     failwith (sprintf "Primitive \"%s\" used with -no-symb option" f_name)
 
-let symbol = _symbol "symbol" tVAny
 let symbol_bool = _symbol "symbol_bool" tBool
 let symbol_int = _symbol "symbol_int" tInt
 let symbol_num = _symbol "symbol_num" tNum
+let symbol_number = _symbol "symbol_number" tNAny
 let symbol_string = _symbol "symbol_string" tStr
+let symbol_prim = _symbol "symbol_prim" tPAny
 let symbol_ref = _symbol "symbol_ref" tRef
+let symbol = _symbol "symbol" tVAny
 
 let to_int32 ~pos v s = match v with
 | SSymb (TV (TP (TN TInt)), _)
@@ -305,12 +307,14 @@ let op1 ~pos op v s =
   | "print" -> print
   | "property-names" -> get_property_names
   | "surface-typeof" -> surface_typeof
-  | "symbol" -> symbol
   | "symbol_bool" -> symbol_bool
   | "symbol_int" -> symbol_int
   | "symbol_num" -> symbol_num
+  | "symbol_number" -> symbol_number
   | "symbol_string" -> symbol_string
+  | "symbol_prim" -> symbol_prim
   | "symbol_ref" -> symbol_ref
+  | "symbol" -> symbol
   | "to-int32" -> to_int32
   | "typeof" -> typeof
   | op -> err_op1 ~op
@@ -421,10 +425,11 @@ let abs_eq ~pos v1 v2 s = match v1, v2 with
     in SState.res_bool b s
 | (SConst (CBool _) | SSymb (TV (TP TBool), _)), (SConst (CBool _) | SSymb (TV (TP TBool), _))
 | (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _))
-| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _))
 | (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _))
-| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) ->
-    SState.res_op2 ~typ:tBool "=" v1 v2 s
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) (* -> *)
+    (* SState.res_op2 ~typ:tBool "=" v1 v2 s *)
+| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)) (* -> *)
+    (* SState.res_op2 ~typ:tBool "num=" v1 v2 s *)
 | (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
     SState.res_op2 ~typ:tBool "stx=" v1 v2 s
 (* some cases could be optimized here but it would be very long to enumerate them *)
@@ -446,10 +451,11 @@ let stx_eq ~pos v1 v2 s = match v1, v2 with
 | (SConst _ | SHeapLabel _), (SConst _ | SHeapLabel _) -> SState.res_false s
 | (SConst (CBool _) | SSymb (TV (TP TBool), _)), (SConst (CBool _) | SSymb (TV (TP TBool), _))
 | (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _)), (SConst (CInt _) | SSymb (TV (TP (TN TInt)), _))
-| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _))
 | (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _))
-| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) ->
-    SState.res_op2 ~typ:tBool "=" v1 v2 s
+| (SHeapLabel _ | SSymb (TV TRef, _)), (SHeapLabel _ | SSymb (TV TRef, _)) (* -> *)
+    (* SState.res_op2 ~typ:tBool "=" v1 v2 s *)
+| (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)), (SConst (CNum _) | SSymb (TV (TP (TN TNum)), _)) (* -> *)
+    (* SState.res_op2 ~typ:tBool "num=" v1 v2 s *)
 | (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)), (SConst (CInt _ | CNum _) | SSymb (TV (TP (TN _)), _)) ->
     SState.res_op2 ~typ:tBool "stx=" v1 v2 s
 | (SConst _ | SSymb (TV (TP _), _)), SSymb (TV (TP TPAny | TVAny), _)

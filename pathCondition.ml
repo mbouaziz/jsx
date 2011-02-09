@@ -33,28 +33,170 @@ struct
     let sNum = z "num"
     let sString = z "string"
     let sHeapLabel = z "heaplabel"
+    let jsNumber = z "jsNumber"
+    let jsPrim = z "jsPrim"
     let jsVal = z "jsVal"
   end
 
   module F = (* functions *)
   struct
-    let conv = StringMap.from_list ["+","js+";"-","js-";"*","js*";"/","js/";"%","js%";"|","js-or";"&","js-and";"^","js-xor";"<<","js-shl";">>","js-ashr";">>>","js-lshr";"<","js<";"<=","js<=";">","js>";">=","js>=";"bool!","bool_neg";"=","smt="]
-    let c x = match StringMap.find_opt x conv with
-    | Some x -> x | None -> x
-    let z = c @> env_find ~kind:"functions" env.funs
+    type deduction_kind = HighToLow | LowToHigh
+    type f_type = SymbolicValue.Typ.f_type
+    type deduction = { ded_kind : deduction_kind ; pres : f_type list ; abs : f_type list ; ded_macro : Z3Env.macro_ex ; ded_priority : int }
 
+    let typ_char = let open SymbolicValue in let open Typ in ['R', T tA; 'V', T tVAny; 'P', T tPAny; 'B', T tBool; 'M', T tNAny; 'I', T tInt; 'N', T tNum; 'S', T tStr; 'O', T tRef; 'U', TUndef; 'L', TNull]
+    let string_of_typ =
+      let char_typ = List.assoc_flip typ_char in
+      let char_of_typ t = List.assoc t char_typ in
+      function ftyp ->
+	ftyp |> Array.map char_of_typ |> String.of_array
+
+    let op_map =
+      let open SymbolicValue.Typ in
+      let op_conv = ["|","js-or";"bool!","bool_neg"] in
+      let typ_chars = List.map fst typ_char in
+      let typ_of_char ~loc c = try List.assoc c typ_char with
+	Not_found -> failwith (sprintf "In %s, %C is not a valid type character" loc c) in
+      let typ_of_str ~loc = String.to_array @> Array.map (typ_of_char ~loc) in
+      let add_op_to_map name f op_map =
+	let basename, s_typ = String.split2 '~' name in
+	if String.length s_typ < 1 then op_map
+	else
+	  let basename = match List.assoc_opt basename op_conv with
+	    None -> basename | Some basename -> basename in
+	  let m = try StringMap.find basename op_map with
+	    Not_found -> TypMap.empty in
+	  let loc = sprintf "operator %S" name in
+	  let m = TypMap.add (typ_of_str ~loc s_typ) f m in
+	  StringMap.add basename m op_map
+      in
+      let add_ded_to_map name f ded_map =
+	let basename, ded_rule = String.split2 '.' name in
+	if basename <> "deduce" then ded_map
+	else match f with
+	| MacroEx ded_macro ->
+	    let ded_kind, sep =
+	      if String.contains ded_rule '<' then HighToLow, '<'
+	      else if String.contains ded_rule '>' then LowToHigh, '>'
+	      else failwith (sprintf "Deduction rule %S badly formatted" name)
+	    in
+	    let p_star = String.index_or_length ded_rule '*' in
+	    let ded_priority = String.length ded_rule - p_star in
+	    let ded_rule = String.left ded_rule p_star in
+	    let typ_ded = String.before_char ded_rule sep in
+	    let typ_pres = String.nsplit_char '+' (String.between_chars ded_rule sep '-') in
+	    let typ_abs = String.nsplit_char '-' (String.between_chars ded_rule '-' '*') in
+	    let arity = String.length typ_ded in
+	    let bad_arity = List.exists (fun t -> String.length t <> arity) in
+	    if bad_arity typ_pres || bad_arity typ_abs then
+	      failwith (sprintf "Deduction rule %S badly formatted" name);
+	    let var_list = List.filter (String.contains ded_rule) ['X'; 'Y'; 'Z'] in
+	    let ded_instances ded_list =
+	      let ded_instance ded_list var =
+		let ded_repl (inst, (t, (tl1, tl2))) =
+		  let repl = String.repl_char var inst in
+		  repl t, (List.map repl tl1, List.map repl tl2)
+		in
+		List.map ded_repl (List.product typ_chars ded_list)
+	      in
+	      List.fold_left ded_instance ded_list var_list
+	    in
+	    let ded_str_list = ded_instances [typ_ded, (typ_pres, typ_abs)] in
+	    let loc = sprintf "deduction rule %S" name in
+	    let add_ded ded_map (typ_ded, (typ_pres, typ_abs)) =
+	      let typ_ded = typ_of_str ~loc typ_ded in
+	      let deduction = {
+		pres = List.map (typ_of_str ~loc) typ_pres ;
+		abs = List.map (typ_of_str ~loc) typ_abs ;
+		ded_kind ; ded_macro ; ded_priority } in
+	      let ded_list = try TypMap.find typ_ded ded_map with
+		Not_found -> [] in
+	      TypMap.add typ_ded (deduction::ded_list) ded_map
+	    in
+	    List.fold_left add_ded ded_map ded_str_list
+	| _ -> failwith (sprintf "Deduction rule %S is not a macro" name)
+      in
+      let ded_map = StringMmap.fold add_ded_to_map env.funs TypMap.empty in
+      let gen_types =
+	let h = Hashtbl.create 1 in
+	let rec aux = function
+	  | 0 -> [[]]
+	  | n -> assert (n > 0);
+	      aux (n-1)
+	      |> List.map (fun ft -> List.rev_map (fun t -> t::ft) ex_types)
+	      |> List.flatten
+	in
+	function arity -> try Hashtbl.find h arity with
+	  Not_found ->
+	    let l = aux arity |> List.map Array.of_list in
+	    let t = l, List.rev l in
+	    Hashtbl.add h arity t;
+	    t
+      in
+      let use_deductions name m op_map =
+	let arity = Array.length (fst (TypMap.choose m)) - 1 in
+	let use_deds ded_kind types m =
+	  let use_ded m ded_type =
+	    if TypMap.mem ded_type m then m
+	    else
+	      let ded_list = match TypMap.find_opt ded_type ded_map with
+	      | None -> []
+	      | Some ded_list -> ded_list in
+	      let apply_ded ded =
+		let pres t = TypMap.mem t m in
+		if ded.ded_kind <> ded_kind || not (List.for_all pres ded.pres) || List.exists pres ded.abs then None
+		else
+		  let args = ded.pres |> Array.of_list |> Array.map (fun t -> TypMap.find t m) in
+		  let n = Array.length args in
+		  let f_arity = n + arity in
+		  Z3Env._log (lazy (sprintf "; deduced %s~%s from %s\n" name (string_of_typ ded_type) (String.concat ", " (List.map (fun t -> sprintf "%s~%s" name (string_of_typ t)) ded.pres))));
+		  let f ast_args =
+		    if Array.length ast_args <> arity then
+		      failwith (sprintf "Generated define %s~%s called with %d arguments instead of %d\n" name (string_of_typ ded_type) (Array.length ast_args) arity)
+		    else
+		      let args = Array.init f_arity (fun i -> if i < n then args.(i) else Z3Env.ConstAst ast_args.(i-n)) in
+		      ded.ded_macro args
+		  in
+		  Some ((ded.ded_priority, ded.pres), Z3Env.MacroAst f)
+	      in
+	      let cmp_fst (x,_) (y,_) = Pervasives.compare x y in
+	      match List.sort cmp_fst (List.filter_map apply_ded ded_list) with
+	      | [] -> m
+	      | [_, f] -> TypMap.add ded_type f m
+	      | ((p0, _), f)::((p1, _), _)::_ when p0 < p1 -> TypMap.add ded_type f m
+	      | (((p0, _), _)::_) as l -> failwith (sprintf "More than one deduction rule with the same priority applicable for %s~%s : %s" name (string_of_typ ded_type) (l |> List.map fst |> List.filter (fst @> ((=) p0)) |> List.map (snd @> List.map string_of_typ @> String.concat ", " @> sprintf "(%s)") |> String.concat "; "))
+	  in
+	  List.fold_left use_ded m types
+	in
+	let types, rev_types = gen_types (arity+1) in
+	StringMap.add name (m |> use_deds HighToLow types |> use_deds LowToHigh rev_types) op_map
+      in
+      let op_map = StringMmap.fold add_op_to_map env.funs StringMap.empty in
+      StringMap.fold use_deductions op_map StringMap.empty
+
+    let op name typ = match StringMap.find_opt name op_map with
+    | None -> failwith (sprintf "Unable to find operator %S in %S" name Z3Env.env_filename)
+    | Some m -> match SymbolicValue.Typ.TypMap.find_opt typ m with
+      | None -> failwith (sprintf "Operator %s~%s cannot be found or deduced" name (string_of_typ typ))
+      | Some f -> f
+
+    let z = env_find ~kind:"functions" env.funs
+
+    let nReal = z "NReal"
+    let nNaN = z "NNaN"
+    let nInfty = z "NInfty"
     let vUndefined = z "VUndefined"
     let vNull = z "VNull"
     let vBool = z "VBool"
     let vInt = z "VInt"
     let vNum = z "VNum"
+    let vNumber = z "VNumber"
     let vString = z "VString"
     let vRef = z "VRef"
-    let vErr = z "VErr"
+    let vPrim = z "VPrim"
+    let rVal = z "RVal"
+    let rErr = z "RErr"
     let mk_string = z "mk-string"
-
-    let valToBool = z "ValToBool"
-    let notValToBool = z "NotValToBool"
   end
 end
 
@@ -107,6 +249,11 @@ struct
       | Z3.NUMERAL_AST -> Z3.get_numeral_string ctx ast
       | Z3.APP_AST -> app_to_string (Z3.to_app ctx ast)
       | _ -> Z3.ast_to_string ctx ast
+    and ast_to_bool ast =
+      match Z3.get_bool_value ctx ast with
+      | Z3.L_TRUE -> true
+      | Z3.L_FALSE -> false
+      | Z3.L_UNDEF -> assert false
     and app_to_string app =
       let fd = Z3.get_app_decl ctx app in
       let args = Z3.get_app_args ctx app in
@@ -120,10 +267,21 @@ struct
 	"undefined"
       else if f_eq fd F.vNull then
 	"null"
+      else if f_eq fd F.vRef then
+	sprintf "heap[%s]" (ast_to_string args.(0))
+      else if f_eq fd F.nNaN then
+	"NaN"
+      else if f_eq fd F.nInfty then
+	sprintf "%cInfinity" (if ast_to_bool args.(0) then '+' else '-')
       else if f_eq fd F.vBool
 	   || f_eq fd F.vInt
+           || f_eq fd F.nReal
            || f_eq fd F.vNum
-           || f_eq fd F.vString then
+	   || f_eq fd F.vNumber
+           || f_eq fd F.vString
+	   || f_eq fd F.vPrim
+           || f_eq fd F.rVal
+	   || f_eq fd F.rErr then
 	ast_to_string args.(0)
       else
 	let ast = Z3.app_to_ast ctx app in
@@ -172,8 +330,9 @@ struct
   let mk_app = Z3.mk_app ctx
   let mk_appf = function
     | Z3Env.FuncDecl f -> Z3.mk_app ctx f
-    | Z3Env.Macro m -> m
-    | Z3Env.MacroConst a -> fun _ -> a
+    | Z3Env.MacroAst m -> m
+    | Z3Env.MacroEx m -> (Array.map (fun a -> Z3Env.ConstAst a)) @> m
+    | Z3Env.ConstAst a -> fun _ -> a
 
   let mk_bv_of_str bv_size s = Z3.mk_numeral ctx s (Z3.mk_bv_sort ctx bv_size)
   let mk_bv_of_int bv_size i = Z3.mk_int ctx i (Z3.mk_bv_sort ctx bv_size)
@@ -232,9 +391,9 @@ struct
 	let ok, heaplabel = Z3.get_numeral_int ctx args.(0) in
 	assert ok;
 	SHeapLabel (HeapLabel.of_int heaplabel)
-      else if f_eq fd F.vErr then
-	failwith "NYI: VErr to svalue"
-  (* problem: with macros, we lost all traces of functions *)
+      else if f_eq fd F.rErr then
+	failwith "NYI: RErr to svalue"
+  (* problem: with macros/defines, we lost all traces of functions *)
       else match Z3.get_decl_kind ctx fd with
       | Z3.OP_TRUE -> SConst (CBool true)
       | Z3.OP_FALSE -> SConst (CBool false)
@@ -280,12 +439,14 @@ struct
 
     module Symbols =
     struct
-      let vany sid = "sA" ^ (SId.to_string sid)
       let bool sid = "sB" ^ (SId.to_string sid)
       let int sid = "sI" ^ (SId.to_string sid)
       let num sid = "sN" ^ (SId.to_string sid)
+      let number sid = "sM" ^ (SId.to_string sid)
       let str sid = "sS" ^ (SId.to_string sid)
-      let _ref sid = "sR" ^ (SId.to_string sid)
+      let prim sid = "sP" ^ (SId.to_string sid)
+      let _ref sid = "sO" ^ (SId.to_string sid)
+      let vany sid = "sV" ^ (SId.to_string sid)
     end
 
     module IntRepr =
@@ -323,55 +484,52 @@ struct
       | false -> SMT.mk_false ()
 
     let of_const = let open JS.Syntax in function
-      | CUndefined -> SMT.mk_appf F.vUndefined [||]
-      | CNull -> SMT.mk_appf F.vNull [||]
-      | CBool b -> SMT.mk_appf F.vBool [| mk_bool b |]
-      | CInt i -> SMT.mk_appf F.vInt [| IntRepr.mk i |]
-      | CNum n -> SMT.mk_appf F.vNum [| NumRepr.mk n |]
-      | CString s -> SMT.mk_appf F.vString [| StrRepr.mk s |]
+      | CUndefined -> tPAny, SMT.mk_appf F.vUndefined [||]
+      | CNull -> tPAny, SMT.mk_appf F.vNull [||]
+      | CBool b -> tBool, mk_bool b
+      | CInt i -> tInt, IntRepr.mk i
+      | CNum n -> tNum, NumRepr.mk n
+      | CString s -> tStr, StrRepr.mk s
       | CRegexp _ -> assert false
 
-    let of_op1 op x = SMT.mk_appf (F.z op) [| x |]
+    let _t t = SymbolicValue.Typ.T t
+    let of_op1 op tout (tx, x) = SMT.mk_appf (F.op op [|_t tx; _t tout|]) [| x |]
+    let of_op2 op tout (tx, x) (ty, y) = SMT.mk_appf (F.op op [|_t tx; _t ty; _t tout|]) [| x ; y |]
+    let of_op3 op tout x y z = failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
+    let of_app v tout l = failwith "No SMT implementation for symbolic applications"
 
-    let of_op2 op x y = SMT.mk_appf (F.z op) [| x ; y |]
-
-    let of_op3 op x y z = failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
-
-    let of_app v l = failwith "No SMT implementation for symbolic applications"
-
-    let sid_var sid = SMT.mk_var (Symbols.vany sid) S.jsVal
     let sid_bool_var sid = SMT.mk_var (Symbols.bool sid) SMT.bool_sort
     let sid_int_var sid = SMT.mk_var (Symbols.int sid) IntRepr.sort
     let sid_num_var sid = SMT.mk_var (Symbols.num sid) NumRepr.sort
+    let sid_number_var sid = SMT.mk_var (Symbols.number sid) S.jsNumber
     let sid_str_var sid = SMT.mk_var (Symbols.str sid) StrRepr.sort
+    let sid_prim_var sid = SMT.mk_var (Symbols.prim sid) S.jsPrim
     let sid_ref_var sid = SMT.mk_var (Symbols._ref sid) RefRepr.sort
+    let sid_val_var sid = SMT.mk_var (Symbols.vany sid) S.jsVal
 
     let rec of_typed_symb = function
-      | TV (TP TBool), SId sid -> SMT.mk_appf F.vBool [| sid_bool_var sid |]
-      | TV (TP (TN TInt)), SId sid -> SMT.mk_appf F.vInt [| sid_int_var sid |]
-      | TV (TP (TN TNum)), SId sid -> SMT.mk_appf F.vNum [| sid_num_var sid |]
-      | TV (TP TStr), SId sid -> SMT.mk_appf F.vString [| sid_str_var sid |]
-      | TV TRef, SId sid -> SMT.mk_appf F.vRef [| sid_ref_var sid |]
-      | TV TVAny, SId sid -> sid_var sid
+      | TV (TP TBool), SId sid -> tBool, sid_bool_var sid
+      | TV (TP (TN TInt)), SId sid -> tInt, sid_int_var sid
+      | TV (TP (TN TNum)), SId sid -> tNum, sid_num_var sid
+      | TV (TP (TN TNAny)), SId sid -> tNAny, sid_number_var sid
+      | TV (TP TStr), SId sid -> tStr, sid_str_var sid
+      | TV (TP TPAny), SId sid -> tPAny, sid_prim_var sid
+      | TV TRef, SId sid -> tRef, sid_ref_var sid
+      | TV TVAny, SId sid -> tVAny, sid_val_var sid
       | _, SId _ -> assert false
-      | _, SOp1 (o, x) -> of_op1 o (of_svalue x)
-      | _, SOp2 (o, x, y) -> of_op2 o (of_svalue x) (of_svalue y)
-      | _, SOp3 (o, x, y, z) -> of_op3 o (of_svalue x) (of_svalue y) (of_svalue z)
-      | _, SApp (v, l) -> of_app (of_svalue v) (List.map of_svalue l)
+      | typ, SOp1 (o, x) -> typ, of_op1 o typ (of_svalue x)
+      | typ, SOp2 (o, x, y) -> typ, of_op2 o typ (of_svalue x) (of_svalue y)
+      | typ, SOp3 (o, x, y, z) -> typ, of_op3 o typ (of_svalue x) (of_svalue y) (of_svalue z)
+      | typ, SApp (v, l) -> typ, of_app typ (of_svalue v) (List.map of_svalue l)
     and of_svalue = function
       | SConst c -> of_const c
-      | SHeapLabel heaplabel -> SMT.mk_appf F.vRef [| RefRepr.mk heaplabel |]
+      | SHeapLabel heaplabel -> tRef, RefRepr.mk heaplabel
       | SSymb ts -> of_typed_symb ts
       | SClosure _ -> assert false (* really shouldn't happen, really?? *)
 
-    let mk_to_bool x = SMT.mk_appf F.valToBool [| x |]
-    let mk_not_to_bool x = SMT.mk_appf F.notValToBool [| x |]
-
     let of_predicate = function
-      | PredVal (SSymb (TV (TP TBool), SId sid)) -> sid_bool_var sid
-      | PredVal v -> mk_to_bool (of_svalue v)
-      | PredNotVal (SSymb (TV (TP TBool), SId sid)) -> SMT.mk_not (sid_bool_var sid)
-      | PredNotVal v -> mk_not_to_bool (of_svalue v)
+      | PredVal v -> of_op1 "val->bool" tBool (of_svalue v)
+      | PredNotVal v -> of_op1 "not-val->bool" tBool (of_svalue v)
   end
 
   module Symbols =
@@ -386,7 +544,9 @@ struct
     | TV (TP TBool), SId sid -> StringMap.add (SId.to_string sid) (bool sid) m
     | TV (TP (TN TInt)), SId sid -> StringMap.add (SId.to_string sid) (int sid) m
     | TV (TP (TN TNum)), SId sid -> StringMap.add (SId.to_string sid) (num sid) m
+    | TV (TP (TN TNAny)), SId sid -> StringMap.add (SId.to_string sid) (number sid) m
     | TV (TP TStr), SId sid -> StringMap.add (SId.to_string sid) (str sid) m
+    | TV (TP TPAny), SId sid -> StringMap.add (SId.to_string sid) (prim sid) m
     | TV TRef, SId sid -> StringMap.add (SId.to_string sid) (_ref sid) m
     | TV TVAny, SId sid -> StringMap.add (SId.to_string sid) (vany sid) m
     | _, SId _ -> assert false
@@ -428,7 +588,7 @@ struct
       (* | SSymb (typ, symb) -> *)
       (* SMT.Cmd.push (); *)
       (* let sid = SId.from_string "_simplify_" in *)
-      (* SMT.Cmd.assert_cnstr (SMT.mk_eq (ToSMT.sid_var sid) (ToSMT.of_svalue (SSymb symb))); *)
+      (* SMT.Cmd.assert_cnstr (SMT.mk_eq (ToSMT.sid_val_var sid) (ToSMT.of_svalue (SSymb symb))); *)
       (* let res, m = SMT.Cmd.check_and_get_model () in *)
       (* print_endline (Z3.model_to_string Env.ctx m); *)
       (* SMT.Cmd.pop (); *)
@@ -479,7 +639,8 @@ struct
 
   let reduce_val v pcl = let open SymbolicValue in match v with
   | SConst c -> reduce_const c
-  | SHeapLabel _ -> Some true
+  | SHeapLabel _
+  | SSymb(TV TRef, _) -> Some true
   | _ -> None
 
   let not_opt = function

@@ -59,6 +59,7 @@ rule token = parse
   | "get-unsat-core" { GetUnsatCore }
   | "get-value" { GetValue }
   | "let" { Let }
+  | "macro" { Macro }
   | "par" { Par }
   | "pop" { Pop }
   | "push" { Push }

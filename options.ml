@@ -58,7 +58,7 @@ struct
 
 
   let opt_smt_log = ref None
-  (* let opt_smt_log = ref Some ("z3.log", open_out "z3.log") *)
+  (* let opt_smt_log = ref (Some ("z3.log", open_out "z3.log")) *)
   let smt_log = generic_opt_out opt_smt_log "set SMT log"
 
   let opt_nb_paths = ref None

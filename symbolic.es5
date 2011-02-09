@@ -1,7 +1,4 @@
 {
-  global["symbol" = function(s){
-    return prim("symbol",s)
-  }];
   global["symbol_bool" = function(s){
     return prim("symbol_bool",s)
   }];
@@ -14,14 +11,23 @@
   global["symbol_num" = function(s){
     return prim("symbol_num",s)
   }];
+  global["symbol_number" = function(s){
+    return prim("symbol_number",s)
+  }];
   global["symbol_string" = function(s){
     return prim("symbol_string",s)
+  }];
+  global["symbol_prim" = function(s){
+    return prim("symbol_prim",s)
   }];
   global["symbol_object" = function(s,p,c,e){
     return prim("symbol_object",s,{[proto: p, extensible: e, class: c]})
   }];
   global["symbol_ref" = function(s){
     return prim("symbol_ref",s)
+  }];
+  global["symbol" = function(s){
+    return prim("symbol",s)
   }];
   global["assume" = function(e){
     return prim("assume",e)

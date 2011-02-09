@@ -19,6 +19,7 @@ module type S = sig
   val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
   val iter : (key -> 'a -> unit) -> 'a t -> unit
   val fold : (key -> 'a -> 'b -> 'b) -> 'a t -> 'b -> 'b
+  val fold_all : (key -> 'a list -> 'b -> 'b) -> 'a t -> 'b -> 'b
   val for_all : (key -> 'a -> bool) -> 'a t -> bool
   val exists : (key -> 'a -> bool) -> 'a t -> bool
   val cardinal : 'a t -> int
@@ -85,6 +86,8 @@ struct
   let iter f = M.iter (onhd f)
 
   let fold f = M.fold (onhd f)
+
+  let fold_all = M.fold
 
   let for_all f = M.for_all (onhd f)
 

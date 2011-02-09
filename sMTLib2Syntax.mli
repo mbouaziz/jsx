@@ -71,6 +71,7 @@ type command = private
   | Define of (symbol * sorted_var list * term)
   | DefineSorts of shorthand_sort list
   | DeclareDatatypes of datatype list
+  | Macro of (symbol * symbol list * term)
 
 type script = command list
 
@@ -185,6 +186,7 @@ sig
     val define : pos -> symbol -> sorted_var list -> term -> command
     val define_sorts : pos -> shorthand_sort list -> command
     val declare_datatypes : pos -> datatype list -> command
+    val macro : pos -> symbol -> symbol list -> term -> command
   end
 
   module Script :
