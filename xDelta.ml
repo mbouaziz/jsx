@@ -105,16 +105,15 @@ let object_to_string ~pos v s = match v with
 
 let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
-    let props = SState.Heap.find_p label s in
-    if props.more_but_fields <> None then
-      SState.res_op1 ~typ:tRef "own-property-names" v s
-    else
-      let add_name name _ (i, m) =
-	let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
-	i + 1, m
-      in
-      let _, fields = IdMap.fold add_name props.fields (0, IdMap.empty) in
-      SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
+    begin match SState.Heap.find_p label s with
+    | { more_but_fields = Some _ ; _ }
+    | { fields = PureFieldAction _ ; _ } ->
+	SState.res_op1 ~typ:tRef "own-property-names" v s
+    | { fields = ConcreteFields cf; more_but_fields = None } ->
+	let add_name i name _ m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
+	let fields = IdMap.fold_i add_name cf IdMap.empty in
+	SState.res_heap_add_fresh ({ fields = ConcreteFields fields; more_but_fields = None }, Mk.internal_props) s
+    end
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "own-property-names" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "own-property-names" v s
 | _ -> SState.throw_str ~pos s "own-property-names"
@@ -209,18 +208,18 @@ let surface_typeof ~pos v s = match v with
 let get_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let rec all_protos_props label = (* Return None if there is a symbolic value that can contribute to the protos props *)
-      let { fields; more_but_fields } = SState.Heap.find_p label s in
-      if more_but_fields <> None then
-	None
-      else
-	let { proto; _ } = SState.Heap.find_ip label s in
-	match proto with
-	| Some lab ->
-	    begin match all_protos_props lab with
-	    | Some l -> Some (fields::l)
-	    | None -> None
-	    end
-	| None -> Some [fields]
+      match SState.Heap.find_p label s with
+      | { more_but_fields = Some _ ; _ }
+      | { fields = PureFieldAction _ ; _ } -> None
+      | { fields = ConcreteFields cf; more_but_fields = None } ->
+	  let { proto; _ } = SState.Heap.find_ip label s in
+	  match proto with
+	  | Some lab ->
+	      begin match all_protos_props lab with
+	      | Some l -> Some (cf::l)
+	      | None -> None
+	      end
+	  | None -> Some [cf]
     in
     let rec collect_names set_opt props = match set_opt with
     | Some _ ->
@@ -236,12 +235,9 @@ let get_property_names ~pos v s = match v with
     | Some protos_props -> match List.fold_left collect_names (Some IdSet.empty) protos_props with
       | None -> SState.res_op1 ~typ:tRef "property-names" v s
       | Some name_set ->
-	  let add_name name (i, m) =
-	    let m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
-	    i + 1, m
-	  in
-	  let _, fields = IdSet.fold add_name name_set (0, IdMap.empty) in
-	  SState.res_heap_add_fresh ({ fields; more_but_fields = None }, Mk.internal_props) s
+	  let add_name i name m = IdMap.add (string_of_int i) (Mk.data_prop (Mk.str name)) m in
+	  let fields = IdSet.fold_i add_name name_set IdMap.empty in
+	  SState.res_heap_add_fresh ({ fields = ConcreteFields fields; more_but_fields = None }, Mk.internal_props) s
     end
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "property-names" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "property-names" v s

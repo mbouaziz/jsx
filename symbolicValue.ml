@@ -137,7 +137,7 @@ struct
   | TV (TP (TN TNAny)), TV (TP (TN _)) -> Some 1
   | _, _ -> None
 
-  type ex_typ = TUndef | TNull | T of ssymb_type
+  type ex_typ = TUndef | TNull | T of ssymb_type | THeap | TFields
 
   let prim_types = [ tBool; tInt; tNum; tStr; tRef ]
 
@@ -145,7 +145,7 @@ struct
 
   let types = prim_types @ abs_types (* idem *)
 
-  let ex_types = TUndef::TNull::(List.map (fun t -> T t) types)
+  let ex_types = TUndef::TNull::THeap::TFields::(List.map (fun t -> T t) types)
 
   type f_type = ex_typ array
 
@@ -187,8 +187,20 @@ type 'a prop = {
   enum : bool;
 }
 
-(* 'v is a svalue, 'c is a closure *)
-type 'v props = { fields : 'v prop IdMap.t; more_but_fields : IdSet.t option }
+type 'v loc_field = 'v
+(* shouldn't be a SConst not CString, a SClosure, a SHeapLabel or a SSymb not tStr, tPAny, tVAny or tA *)
+
+type 'v purefieldaction =
+  | UpdateField of 'v loc_field * 'v
+  | DeleteField of 'v loc_field
+(* todo: SetAttr but not Getter/Setter *)
+
+type 'v sfields =
+  | ConcreteFields of 'v prop IdMap.t
+  | PureFieldAction of ('v purefieldaction * 'v sfields)
+
+(* 'v is a svalue *)
+type 'v props = { fields : 'v sfields; more_but_fields : IdSet.t option }
     (* if more_but_fields is Some set then the object can have more fields but not those in fields and in this set
        if a field is in the set, then not only has-own-property return false but also has-property
     *)
@@ -201,7 +213,9 @@ type 'c internal_props = {
 }
 
 
-let props_is_empty { fields; more_but_fields } = more_but_fields = None && IdMap.is_empty fields
+let props_is_empty = function
+  | { fields = ConcreteFields m ; more_but_fields = None } when IdMap.is_empty m -> true
+  | _ -> false
 
 
 module Mk =
@@ -226,7 +240,7 @@ struct
       extensible = false; code = None }
 
   let empty_props =
-    { fields = IdMap.empty; more_but_fields = None }
+    { fields = ConcreteFields IdMap.empty; more_but_fields = None }
   let empty_prop =
     { value = None; getter = None; setter = None;
       writable = false; config = false; enum = false }

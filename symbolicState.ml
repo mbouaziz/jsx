@@ -240,7 +240,13 @@ struct
 	  else
 	    let depth = depth - 1 in
 	    labs |> aux_props ~depth (SHeap.P.find l heap.p) |> aux_internal_props ~depth (SHeap.IP.find l heap.ip)
-      and aux_props ~depth { fields; _ } = IdMap.fold (aux_prop ~depth) fields
+      and aux_props ~depth { fields; _ } = aux_fields ~depth fields
+      and aux_fields ~depth = function
+	| ConcreteFields cf -> IdMap.fold (aux_prop ~depth) cf
+	| PureFieldAction (a, f) -> aux_fieldaction ~depth a @> aux_fields ~depth f
+      and aux_fieldaction ~depth = function
+	| UpdateField (v1, v2) -> aux ~depth v1 @> aux ~depth v2
+	| DeleteField v -> aux ~depth v
       and aux_internal_props ~depth { proto; _ } = aux_opt ~depth proto
       and aux_prop ~depth _ prop = aux_optv ~depth prop.value @> aux_opt ~depth prop.getter @> aux_opt ~depth prop.setter
       and aux_optv ~depth = function Some v -> aux ~depth v | None -> (fun x -> x)
@@ -281,20 +287,26 @@ struct
     and spropattr_value s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue s v)
-    and sprops s { fields; more_but_fields } =
-      let add_more l = match more_but_fields with
-      | None -> l
-      | Some but_fields ->
-	  let but = IdSet.to_list but_fields |> String.concat ", " in
-	  let but =
-	    if but = "" then ""
-	    else sprintf " (but %s)" but in
-	  l@[sprintf "& more%s" but]
-      in
-      let unit_prop (prop_id, prop) =
-	sprintf "%s: {%s}" prop_id (spropattr_value s prop)
-      in
-      fields |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
+    and sprops s { fields; more_but_fields } = sfields s ~more_but_fields fields
+    and sfields s ~more_but_fields = function
+      | ConcreteFields cf ->
+	  let add_more l = match more_but_fields with
+	  | None -> l
+	  | Some but_fields ->
+	      let but = IdSet.to_list but_fields |> String.concat ", " in
+	      let but =
+		if but = "" then ""
+		else sprintf " (but %s)" but in
+	      l@[sprintf "& more%s" but]
+	  in
+	  let unit_prop (prop_id, prop) =
+	    sprintf "%s: {%s}" prop_id (spropattr_value s prop)
+	  in
+	  cf |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
+      | PureFieldAction (a, f) ->
+	  match a with
+	  | UpdateField (f_loc, v) -> sprintf "updateField(%s <- %s,\n%s)" (svalue s f_loc) (svalue s v) (String.interline " " (sfields s ~more_but_fields f))
+	  | DeleteField f_loc -> sprintf "deleteField(%s,\n%s)" (svalue s f_loc) (String.interline " " (sfields s ~more_but_fields f))
 
     let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
