@@ -1,0 +1,36 @@
+
+In PathCondition:
+
+- check for errors (only if type is TA and only on the latest predicate)
+
+- simplifications:
+  - types (assert (is_Vxxx some_symbol))
+  - values (once we get the model, (assert (distinct some_symbol value)))
+  - with a parameter to branch if there is a few number of cases
+  - problems :
+    - need to keep a map of simplifications for each symbol (easy)
+    - traverse the env, the heap, the output, the path condition to (possibly) simplify all values
+    - which expression to remove from the path condition?
+
+- other orders of search
+  - BFS (usefull for a join operator)
+  - code coverage (DFS with priorities)
+
+- analysis of functions separately with function summaries (with guard)
+
+- option -smt-timeout (0 = -no-smt)
+
+- in interactive mode, continue computation in the background
+
+Compilation:
+
+- static compilation of Z3 bindings to be able to use JsxWeb again
+
+- embed environments (es5-lib.es5, symbolic.es5, env.smt2)
+
+- try with other SMT solvers
+
+LambdaJS:
+
+- continue to implement the standard library
+- if new primitives are needed, add them in es5_delta.ml (lambdaJS), xDelta.ml (Jsx) and env.smt2 (Jsx SMT environment)

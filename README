@@ -1,0 +1,10 @@
+
+Jsx, a symbolic executor for Javascript
+
+For install instructions, read INSTALL
+
+To symbolically execute a .js file, do:
+./jsx.native myfile.js -env symbolic.es5 -env ../lambdaJS/data/es5-lib.es5
+According that lambdaJS sources are in ../lambdaJS
+
+For further options, do: ./jsx.native -help

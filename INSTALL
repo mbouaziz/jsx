@@ -1,0 +1,16 @@
+
+To build and install Jsx, you need:
+
+- OCaml compiler >= 3.12.0 with ocamlbuild and ocamlfind
+- camlidl
+- my modified version of LambdaJS
+    for example from my read-only git repository:
+    http://mehdi.bouaziz.org/git/lambdaJS/
+- Z3 linux distribution (tested with version 2.19)
+    http://research.microsoft.com/en-us/um/redmond/projects/z3/download.html
+- sudo access (only if your OCaml distribution is not installed in a local directory)
+
+Merge the z3 directory of Jsx into the Z3 distribution
+Build and install Z3 (sudo make install)
+Build and install LambdaJS (sudo make install)
+make
