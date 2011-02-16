@@ -314,9 +314,6 @@ struct
       Z3Env._log (lazy "(check-sat)\n(get-info model)\n");
       let lbool, m = Z3.check_and_get_model ctx in
       (lbool_of_lbool lbool, m)
-    let simplify ast =
-      Z3Env._log (lazy (sprintf "(simplify\n  %s)\n" (String.interline "  " (Z3.ast_to_string ctx ast))));
-      Z3.simplify ctx ast
   end
 
   let bool_sort = Z3.mk_bool_sort ctx
@@ -342,8 +339,6 @@ struct
     Z3Env.Helpers.ast_of_decimal ctx h l
 
   let mk_var name sort = Z3.mk_const ctx (Z3.mk_string_symbol ctx name) sort
-
-  let simplify = Cmd.simplify
 
   module ToSValue =
   struct
@@ -419,10 +414,6 @@ sig
   module Symbols :
   sig
     val of_pathcomponent : string StringMap.t -> ('t, 's) pathcomponent -> string StringMap.t
-  end
-  module Simplify :
-  sig
-    val svalue : ('t, 's) SymbolicValue._svalue -> ('t, 's) SymbolicValue._svalue
   end
 
   val assert_pathcomponent : ('t, 's) pathcomponent -> unit
@@ -579,30 +570,6 @@ struct
   let check_sat pcl = _check ~_assert:(List.iter assert_pathcomponent) pcl
   let check_pred_sat_model pred = _check_model ~_assert:assert_predicate pred
   let check_sat_model pcl = _check_model ~_assert:(List.iter assert_pathcomponent) pcl
-
-  module Simplify =
-  struct
-    open SymbolicValue
-
-    let svalue = function
-      (* | SSymb (typ, symb) -> *)
-      (* SMT.Cmd.push (); *)
-      (* let sid = SId.from_string "_simplify_" in *)
-      (* SMT.Cmd.assert_cnstr (SMT.mk_eq (ToSMT.sid_val_var sid) (ToSMT.of_svalue (SSymb symb))); *)
-      (* let res, m = SMT.Cmd.check_and_get_model () in *)
-      (* print_endline (Z3.model_to_string Env.ctx m); *)
-      (* SMT.Cmd.pop (); *)
-      (* if res = L_TRUE then *)
-      (* 	let smt_sid = ToSMT.Symbols.any sid in *)
-      (* 	match SMT.Model.get_constant m smt_sid with *)
-      (* 	| None -> SSymb symb *)
-      (* 	| Some ast -> try SMT.to_svalue ast with _ -> SSymb symb *)
-      (* else *)
-	(* SSymb symb *)
-      (* try symb |> ToSMT.of_symb |> SMT.simplify |> SMT.to_svalue with *)
-      (* 	_ -> SSymb symb *)
-      | v -> v
-  end
 
 end
 

@@ -73,7 +73,7 @@ sig
 
   module ToString :
   sig
-    val svalue : ?deep:bool -> ?brackets:bool -> ?simplify:bool -> 'a t -> svalue -> string
+    val svalue : ?deep:bool -> ?brackets:bool -> 'a t -> svalue -> string
     val svalue_list : 'a t -> svalue list -> string
     val state : s -> string
     val nosymb_state : s -> string * string option
@@ -248,42 +248,40 @@ struct
       in
       List.fold_right (aux ~depth) vl labs
 
-    let rec svalue ?(deep=false) ?(brackets=false) ?(simplify=false) s =
+    let rec svalue ?(deep=false) ?(brackets=false) s =
       let enclose x = if brackets then sprintf "(%s)" x else x in
       function
 	| SConst c -> const c
 	| SClosure _ -> "function"
-	| SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj ~simplify s (SHeap.P.find hl s.heap.p) (SHeap.IP.find hl s.heap.ip)))
+	| SHeapLabel hl when deep -> enclose (sprintf "heap[%s]: %s" (HeapLabel.to_string hl) (sobj s (SHeap.P.find hl s.heap.p) (SHeap.IP.find hl s.heap.ip)))
 	| SHeapLabel hl -> sprintf "heap[%s]" (HeapLabel.to_string hl)
-	| SSymb (_, symb) as v ->
-	    if simplify && !Options.opt_smt then
-	      svalue ~deep ~brackets ~simplify:false s (PathCondition.VC.Simplify.svalue v)
-	    else match symb with
+	| SSymb (_, symb) ->
+	    match symb with
 	    | SId id -> SId.to_string id
 	    | SOp1 (o, v) ->
 		if Char.is_alpha o.[0] then
-		  sprintf "%s(%s)" o (svalue ~simplify s v)
+		  sprintf "%s(%s)" o (svalue s v)
 		else
-		  enclose (sprintf "%s %s" o (svalue ~brackets:true ~simplify s v))
+		  enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
 	    | SOp2 (o, v1, v2) ->
 		if Char.is_alpha o.[0] then
-		  sprintf "%s(%s, %s)" o (svalue ~simplify s v1) (svalue ~simplify s v2)
+		  sprintf "%s(%s, %s)" o (svalue s v1) (svalue s v2)
 		else
-		  enclose (sprintf "%s %s %s" (svalue ~brackets:true ~simplify s v1) o (svalue ~brackets:true ~simplify s v2))
-	    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue ~simplify s v1) (svalue ~simplify s v2) (svalue ~simplify s v3)
-	    | SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true ~simplify s v) (String.concat ", " (List.map (svalue ~simplify s) vl))
+		  enclose (sprintf "%s %s %s" (svalue ~brackets:true s v1) o (svalue ~brackets:true s v2))
+	    | SOp3 (o, v1, v2, v3) -> sprintf "%s(%s, %s, %s)" o (svalue s v1) (svalue s v2) (svalue s v3)
+	    | SApp (v, vl) -> sprintf "%s(%s)" (svalue ~brackets:true s v) (String.concat ", " (List.map (svalue s) vl))
 
-    and sobj ~simplify s props { proto; _class; extensible; code } =
-      let s_proto = sprintf "proto: %s, " (match proto with None -> "null" | Some l -> svalue ~simplify s (SHeapLabel l)) in
+    and sobj s props { proto; _class; extensible; code } =
+      let s_proto = sprintf "proto: %s, " (match proto with None -> "null" | Some l -> svalue s (SHeapLabel l)) in
       let s_class = if _class = "" then "" else sprintf "class: %S, " _class in
       let s_extensible = sprintf "extensible: %B" extensible in
       let s_code = match code with None -> "" | Some _ -> ", code: <function>" in
-      let s_props = if props_is_empty props then "" else String.interline "  " ("\n" ^ sprops ~simplify s props) in
+      let s_props = if props_is_empty props then "" else String.interline "  " ("\n" ^ sprops s props) in
       "{[" ^ s_proto ^ s_class ^ s_extensible ^ s_code ^ "]" ^ s_props ^ "}"
-    and spropattr_value ~simplify s prop = match prop.value with
+    and spropattr_value s prop = match prop.value with
     | None -> "attrs"
-    | Some v -> sprintf "#value: %s" (svalue ~simplify s v)
-    and sprops ~simplify s { fields; more_but_fields } =
+    | Some v -> sprintf "#value: %s" (svalue s v)
+    and sprops s { fields; more_but_fields } =
       let add_more l = match more_but_fields with
       | None -> l
       | Some but_fields ->
@@ -294,16 +292,16 @@ struct
 	  l@[sprintf "& more%s" but]
       in
       let unit_prop (prop_id, prop) =
-	sprintf "%s: {%s}" prop_id (spropattr_value ~simplify s prop)
+	sprintf "%s: {%s}" prop_id (spropattr_value s prop)
       in
       fields |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
 
-    let svalue_list s vl = String.concat ", " (List.map (svalue ~simplify:false s) vl)
+    let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
     let senv s env =
       let unit_binding (id, envlab) =
 	let v = EnvVals.find envlab s.envvals in
-	sprintf "%s\t%s" id (svalue ~simplify:false s v)
+	sprintf "%s\t%s" id (svalue s v)
       in
       env |> IdMmap.bindings |> List.map unit_binding |> String.concat "\n"
 
@@ -317,8 +315,8 @@ struct
     let label l = l
 
     let exnval s = function
-      | SBreak (l, v) -> sprintf "Break(%s, %s)" (label l) (svalue ~simplify:false s v)
-      | SThrow v -> sprintf "Throw(%s)" (svalue ~simplify:false s v)
+      | SBreak (l, v) -> sprintf "Break(%s, %s)" (label l) (svalue s v)
+      | SThrow v -> sprintf "Throw(%s)" (svalue s v)
       | SError msg -> msg
 
     let exn s ((pos, cs), ev) =
@@ -326,9 +324,9 @@ struct
 
     let srvalue s = function
       | SExn e -> exn s e
-      | SValue v -> svalue ~simplify:false s v
+      | SValue v -> svalue s v
 
-    let string_of_svalue ~brackets s v = svalue ~brackets ~simplify:false s v
+    let string_of_svalue ~brackets s v = svalue ~brackets s v
 
     let pathcondition = PathCondition.ToString.pathcondition ~string_of_svalue
     let assumptions = PathCondition.ToString.assumptions ~string_of_svalue
@@ -337,7 +335,7 @@ struct
     let env s env = ""
     let callstack s cs = ""
     let heap ?labs s heap =
-      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (String.interline "\t" (sobj ~simplify:false s (SHeap.P.find lab heap.p) v)))::l in
+      let add_lab lab v l = (sprintf "%s\t%s" (HeapLabel.to_string lab) (String.interline "\t" (sobj s (SHeap.P.find lab heap.p) v)))::l in
       let unit_lab = match labs with
       | None -> add_lab
       | Some labs -> fun lab v l -> if LabelSet.mem lab labs then add_lab lab v l else l
@@ -347,7 +345,7 @@ struct
     let res_exn s = function
       | Some e -> exn s e
       | None -> ""
-    let out s sout = SOutput.to_string (svalue ~simplify:true s) sout
+    let out s sout = SOutput.to_string (svalue s) sout
 
     (* these X_values functions should correspond to what is printed with res_X *)
     let env_values _ = []
