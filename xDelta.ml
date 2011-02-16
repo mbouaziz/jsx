@@ -191,7 +191,7 @@ let is_primitive ~pos v s = match v with
 | SSymb (TA, _) -> SState.res_op1 ~typ:tA "primitive?" v s
 | _ -> SState.res_false s
 
-let print ~pos v s = s |> SState.Output.print v |> SState.singleton
+let print ~pos v s = s |> SState.Output.print ~name:"" v |> SState.singleton
 
 let surface_typeof ~pos v s = match v with
 | SConst c -> const_typeof ~fname:"surface-typeof" ~pos c s
@@ -469,6 +469,10 @@ let stx_eq ~pos v1 v2 s = match v1, v2 with
     SState.res_op2 ~typ:tA "stx=" v1 v2 s
 | _ -> SState.res_false s
 
+let output ~pos v1 v2 s = match v1 with
+| SConst (CString name) -> s |> SState.Output.print ~name v2 |> SState.singleton
+| _ -> SState.err ~pos s "output expected its first argument to be a non-symbolic string"
+
 let string_plus ~pos v1 v2 s = match v1, v2 with
 | SConst (CString x1), SConst (CString x2) -> SState.res_str (x1 ^ x2) s
 | (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
@@ -602,6 +606,7 @@ let op2 ~pos op v1 v2 s =
   | ">=" -> arith_ge
   | "abs=" -> abs_eq
   | "stx=" -> stx_eq
+  | "output" -> output
   | "string+" -> string_plus
   | "symbol_object" -> symbol_object
   | "has-own-property?" -> has_own_property

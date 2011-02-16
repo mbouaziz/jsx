@@ -40,5 +40,8 @@
   }];
   global["assert" = function(e){
     return prim("assert",e)
+  }];
+  global["output" = function(n,e){
+    return prim("output",n,e)
   }]
 }

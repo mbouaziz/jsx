@@ -161,7 +161,7 @@ sig
   end
   module Output :
   sig
-    val print : svalue -> 'a t -> 'a t
+    val print : name:string -> svalue -> 'a t -> 'a t
   end
   module PathCondition :
   sig
@@ -193,7 +193,7 @@ struct
   type 'a call = { call_pos : pos ; call_env : env ; call_args : 'a list }
   and 'a callstack = 'a call list
   and 'a sexn = ('a, 'a callstack) _sexn
-  and ('a, 'b) state = { pc : 'a PathCondition._pathcondition ; env : env ; env_stack : env list ; envvals : 'a envvals ; heap : ('a, sclosure) sheap ; res : 'b ; exn : 'a sexn option ; out : 'a SOutput.t ; callstack : 'a callstack }
+  and ('a, 'b) state = { pc : 'a PathCondition._pathcondition ; env : env ; env_stack : env list ; envvals : 'a envvals ; heap : ('a, sclosure) sheap ; res : 'b ; exn : 'a sexn option ; outmap : 'a SOutput.t StringMap.t ; callstack : 'a callstack }
   and svalue = ((svalue, unit) state, (svalue, srvalue) state __set) _svalue
   and srvalue = (svalue, svalue sexn) rvalue
   and sclosure = ((svalue, unit) state, (svalue, srvalue) state __set) _closure
@@ -359,6 +359,17 @@ struct
       | Some ((_, cs), ev) -> (callstack_values cs)@(exnval_values ev)
       | None -> []
 
+    let outmap_values outmap = StringMap.fold (fun _ out l -> (SOutput.values out)@l) outmap []
+
+    let pretty_out s outmap =
+      StringMap.to_list outmap |> List.map (
+	fun (name, o) ->
+	  let label = if name = "" then "out:" else sprintf "out[%s]:" name in
+	  let tab = " " in
+	  let shift = String.make (String.length label + String.length tab) ' ' in
+	  sprintf "%s%s%s" label tab (String.interline shift (out s o))
+      ) |> String.concat "\n"
+
     let state s =
       let depth = 1 in (* prevents from printing too many objects *)
       let labs = LabelSet.empty
@@ -366,13 +377,15 @@ struct
       |> collect_labels ~depth s (env_values s.env)
       |> collect_labels ~depth s (rvalue_values s.res)
       |> collect_labels ~depth s (exn_values s.exn)
-      |> collect_labels ~depth s (SOutput.values s.out)
+      |> collect_labels ~depth s (outmap_values s.outmap)
       |> collect_labels ~depth s (callstack_values s.callstack)
       in
       let pc_label = sprintf "pc[%s]" (PathCondition.ToString.sat s.pc) in
-      ["assum", assumptions s s.pc; "assert", assertions s s.pc; pc_label, pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack; "out", out s s.out]
+      let append_out l = l@[pretty_out s s.outmap] in
+      ["assum", assumptions s s.pc; "assert", assertions s s.pc; pc_label, pathcondition s s.pc; "env", env s s.env; "heap", heap ~labs s s.heap; "res", res_rsvalue s s.res; "exn", res_exn s s.exn; "stk", callstack s s.callstack]
       |> List.filter_map (fun (name, msg) -> if msg = "" then None else
 			    Some (sprintf "%s:\t%s" name (String.interline "\t" msg)))
+      |> append_out
       |> String.concat "\n"
 
     let state_set _ = assert false (* Change the API *)
@@ -381,10 +394,12 @@ struct
       | SConst (JS.Syntax.CString x) -> x
       | _ -> failwith "Non-string value"
 
-    let nosymb_out s sout = SOutput.to_string (nosymb_svalue s) sout
+    let nosymb_out s outmap = match StringMap.to_list outmap with
+    | ["print", o] -> SOutput.to_string (nosymb_svalue s) o
+    | _ -> pretty_out s outmap
 
     let nosymb_state s =
-      let out = nosymb_out s s.out in
+      let out = nosymb_out s s.outmap in
       let exn = res_exn s s.exn in
       if exn = "" then
 	out, None
@@ -451,10 +466,15 @@ struct
 
   module Output =
   struct
-    let print v s = { s with out = SOutput.print v s.out }
-    let warning ~pos msg s =
+    let apply f ~name s =
+      let out = try StringMap.find name s.outmap with
+      | Not_found -> SOutput.empty in
+      { s with outmap = StringMap.add name (f out) s.outmap }
+
+    let print ~name v s = apply (SOutput.print v) ~name s
+    let warning ~pos ~name msg s =
       let str = sprintf "%s\n%s" (ToString.position_and_stack s pos s.callstack) msg in
-      { s with out = SOutput.warning str s.out }
+      apply (SOutput.warning str) ~name s
   end
 
   module Next =
@@ -474,7 +494,7 @@ struct
       | Some g2 -> seq_def g2 n1
   end
 
-  let first = { pc = PathCondition.PC.pc_true; env = IdMmap.empty; env_stack = []; envvals = EnvVals.empty; heap = SHeap.empty; res = (); exn = None; out = SOutput.empty; callstack = [] }
+  let first = { pc = PathCondition.PC.pc_true; env = IdMmap.empty; env_stack = []; envvals = EnvVals.empty; heap = SHeap.empty; res = (); exn = None; outmap = StringMap.empty; callstack = [] }
 
   (* let is_empty set = false *)
 
@@ -558,10 +578,10 @@ struct
       | _, None -> err ~pos s "This assertion is surely false!"
       | L_FALSE, Some pc -> res_true { s with pc }
       | L_TRUE, Some pc ->
-	  let s = Output.warning ~pos "This assertion could be false" s in
+	  let s = Output.warning ~pos ~name:"" "This assertion could be false" s in
 	  res_false { s with pc }
       | L_UNDEF, Some pc ->
-	  let s = Output.warning ~pos "This assertion cannot be checked" s in
+	  let s = Output.warning ~pos ~name:"" "This assertion cannot be checked" s in
 	  res_false { s with pc }
 
     let assume ~pos v s =
