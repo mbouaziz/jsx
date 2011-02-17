@@ -95,7 +95,8 @@ let opt_xeval = ref true
 
 let opt_assertions = opt_assumptions
 let opt_pathcondition = ref true
-let opt_err_unbound_id_env = ref false
+let opt_trace = ref false
+let opt_err_unbound_id_env = ref true
 
 
 let boolspeclist =

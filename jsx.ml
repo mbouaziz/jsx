@@ -101,7 +101,9 @@ let main () =
     get_fine_ljs () |> LambdaJS.Syntax.raw_of_fine
   in
   if !Options.opt_pretty then begin
+    LambdaJS.Pretty.opt_print_args := true;
     LambdaJS.Pretty.exp (get_raw_ljs ()) Prelude.Format.std_formatter;
+    LambdaJS.Pretty.opt_print_args := false;
     print_newline ();
   end;
   if !Options.opt_features then begin

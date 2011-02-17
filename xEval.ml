@@ -257,7 +257,7 @@ let arity_mismatch_err ~pos xl args s =
   SState.err ~pos s (sprintf "Error [xeval] Arity mismatch, supplied %d arguments and expected %d. Arg names were: %s. Values were: %s." (List.length args) (List.length xl) (String.concat " " xl) (String.concat " " (List.map (ToString.svalue ~brackets:true s) args)))
 
 
-let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = exp } s ->
+let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun ({ p = pos ; e = exp } as ljs) s ->
   let xeval_nocheck s = match exp with
   | EConst c -> SState.res_v (SConst c) s
   | EId x ->
@@ -477,6 +477,16 @@ let rec xeval : 'a. fine_exp -> 'a SState.t -> SState.set = fun { p = pos ; e = 
       SState.res_v (SClosure lambda) s
   | EFix(x, e) -> SState.err ~pos s "Error [xeval] Arbritrary EFix NYI"
   in
+  if !Options.opt_trace then begin
+    print_string (pretty_position pos);
+    if Lexing.((snd pos).pos_lnum - (fst pos).pos_lnum < 10) then begin (* same line, supposed to be a short expression *)
+      LambdaJS.Pretty.exp (LambdaJS.Syntax.raw_of_fine ljs) Prelude.Format.str_formatter;
+      let s = Prelude.Format.flush_str_formatter () in
+      if String.length s > 1200 then print_endline "<big expression>"
+      else print_endline s
+    end else
+      print_endline "<big expression>"
+  end;
   SState.check_exn xeval_nocheck s
 
 and xeval1 : 'a. _ -> fine_exp -> 'a SState.t -> SState.set =
