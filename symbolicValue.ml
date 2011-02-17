@@ -91,9 +91,15 @@ sig
 end =
 struct
   type t = string
-  let fresh_cnt = ref 0
+  let fresh_cnts = Hashtbl.create 10
   let from_string ?(fresh=false) s =
     if fresh then begin
+      let fresh_cnt = try Hashtbl.find fresh_cnts s with
+	Not_found ->
+	  let r = ref (-1) in
+	  Hashtbl.add fresh_cnts s r;
+	  r
+      in
       incr fresh_cnt;
       sprintf "%s$%d" s !fresh_cnt
     end else
