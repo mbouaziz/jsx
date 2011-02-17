@@ -22,6 +22,10 @@ In PathCondition:
 
 - in interactive mode, continue computation in the background
 
+XDelta:
+Optimization of some trivial cases
+@x + 0 --> @x, @x <= +Infinity --> true, ...
+
 Compilation:
 
 - static compilation of Z3 bindings to be able to use JsxWeb again

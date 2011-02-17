@@ -476,6 +476,8 @@ let output ~pos v1 v2 s = match v1 with
 
 let string_plus ~pos v1 v2 s = match v1, v2 with
 | SConst (CString x1), SConst (CString x2) -> SState.res_str (x1 ^ x2) s
+| SConst (CString ""), v
+| v, SConst (CString "") -> SState.res_v v s
 | (SConst (CString _) | SSymb (TV (TP TStr), _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
     SState.res_op2 ~typ:tStr "string+" v1 v2 s
 | (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
