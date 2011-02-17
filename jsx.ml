@@ -83,28 +83,35 @@ let main () =
     (* Because a model contains an abstract type which cannot be marshalled *)
     Options.opt_model := false;
   end;
-  let get_fine_ljs () =
-    if !Options.inputs = [] then
-      Options.error_usage "No input";
-    if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
-      warning "Desugaring without environment";
-    let raw_ljs = Parsers.from_inputs (!Options.inputs) in
-    let fine_ljs = LambdaJS.Desugar.desugar raw_ljs in
-    let raw_ljs = LambdaJS.Syntax.raw_of_fine fine_ljs in
-    if !Options.opt_pretty then begin
-      LambdaJS.Pretty.exp raw_ljs Prelude.Format.std_formatter;
-      print_newline ();
-    end;
-    if !Options.opt_features then begin
-      let m = FeaturesList.of_exp raw_ljs in
-      print_endline (FeaturesList.Pretty.string_of_map ~sort_max:true m);
-    end;
-    if !Options.opt_eval then begin
-      let _ = LambdaJS.Eval.eval_expr fine_ljs in
-      print_newline ();
-    end;
-    fine_ljs
+  let get_fine_ljs =
+    let _fine_ljs = ref None in
+    fun () -> match !_fine_ljs with
+    | Some fine_ljs -> fine_ljs
+    | None ->
+	if !Options.inputs = [] then
+	  Options.error_usage "No input";
+	if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
+	  warning "Desugaring without environment";
+	let raw_ljs = Parsers.from_inputs (!Options.inputs) in
+	let fine_ljs = LambdaJS.Desugar.desugar raw_ljs in
+	_fine_ljs := Some fine_ljs;
+	fine_ljs
   in
+  let get_raw_ljs () =
+    get_fine_ljs () |> LambdaJS.Syntax.raw_of_fine
+  in
+  if !Options.opt_pretty then begin
+    LambdaJS.Pretty.exp (get_raw_ljs ()) Prelude.Format.std_formatter;
+    print_newline ();
+  end;
+  if !Options.opt_features then begin
+    let m = FeaturesList.of_exp (get_raw_ljs ()) in
+    print_endline (FeaturesList.Pretty.string_of_map ~sort_max:true m);
+  end;
+  if !Options.opt_eval then begin
+    let _ = LambdaJS.Eval.eval_expr (get_fine_ljs ()) in
+    print_newline ();
+  end;
   if !Options.opt_xeval then begin
     let set_opt =
       (* idea: an option to chain xeval + load-set *)
@@ -178,10 +185,10 @@ let main () =
 	  close_out och
       end;
     end else match set_opt with
-    | None -> failwith "No state"
+    | None -> failwith "Bug? No state"
     | Some set ->
 	match SymbolicState.SState.get_singleton set with
-	| None -> failwith "Several states"
+	| None -> failwith "Bug? Several states without symbols!"
 	| Some s -> let io, exn_opt = SymbolicState.ToString.nosymb_state s in
 	  print_endline io;
 	  begin match exn_opt with
