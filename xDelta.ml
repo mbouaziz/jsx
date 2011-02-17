@@ -248,9 +248,10 @@ let get_property_names ~pos v s = match v with
 | _ -> SState.throw_str ~pos s "get-property-names"
 
 let _symbol f_name typ ~pos v s =
+  let fresh = true in
   if !Options.opt_symbols then match v with
-  | SConst (CString id) -> SState.res_id ~typ (SId.from_string id) s
-  | SConst (CInt n) -> SState.res_id ~typ (SId.from_string (string_of_int n)) s
+  | SConst (CString id) -> SState.res_id ~typ (SId.from_string ~fresh id) s
+  | SConst (CInt n) -> SState.res_id ~typ (SId.from_string ~fresh (string_of_int n)) s
   | _ -> SState.err ~pos s (sprintf "Error [%s] Please, don't do stupid things with symbolic id" f_name)
   else
     failwith (sprintf "Primitive \"%s\" used with -no-symb option" f_name)
