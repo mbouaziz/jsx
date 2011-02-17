@@ -125,58 +125,24 @@ let tA = TA
 module Typ =
 struct
 
-  let cmp t1 t2 = match t1, t2 with
-  | t1, t2 when t1 = t2 -> Some 0
-  | _, TA
-  | TV _, TV TVAny
-  | TV (TP _), TV (TP TPAny)
-  | TV (TP (TN _)), TV (TP (TN TNAny)) -> Some (-1)
-  | TA, _
-  | TV TVAny, TV _
-  | TV (TP TPAny), TV (TP _)
-  | TV (TP (TN TNAny)), TV (TP (TN _)) -> Some 1
-  | _, _ -> None
-
   type ex_typ = TUndef | TNull | T of ssymb_type | THeap | TFields
 
   let prim_types = [ tBool; tInt; tNum; tStr; tRef ]
-
   let abs_types = [ tNAny; tPAny; tVAny; tA ] (* must respect the partial order *)
-
   let types = prim_types @ abs_types (* idem *)
-
   let ex_types = TUndef::TNull::THeap::TFields::(List.map (fun t -> T t) types)
 
   type f_type = ex_typ array
 
-  module TypMap =
-  struct
-    module FTyp =
-    struct
-      type t = f_type
-      let compare = Pervasives.compare
-    end
-    include Map.Make(FTyp)
-  end
+  module TypMap = Map.Make(struct
+			     type t = f_type
+			     let compare = Pervasives.compare
+			   end)
 end
 
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
-
-(* 't is a state, 's is a state set *)
-type ('t, 's) _closure = ('t, 's) _svalue list -> 't -> 's
-and ('t, 's) _svalue =
-  | SConst of sconst
-  | SClosure of ('t, 's) _closure
-  | SHeapLabel of sheaplabel
-  | SSymb of (ssymb_type * ('t, 's) _ssymb)
-and ('t, 's) _ssymb =
-  | SId of sid
-  | SOp1 of string * ('t, 's) _svalue
-  | SOp2 of string * ('t, 's) _svalue * ('t, 's) _svalue
-  | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
-  | SApp of ('t, 's) _svalue * ('t, 's) _svalue list
 
 type 'a prop = {
   value : 'a option;
@@ -190,20 +156,36 @@ type 'a prop = {
 type 'v loc_field = 'v
 (* shouldn't be a SConst not CString, a SClosure, a SHeapLabel or a SSymb not tStr, tPAny, tVAny or tA *)
 
-type 'v purefieldaction =
+type 'v pure_action =
   | UpdateField of 'v loc_field * 'v
   | DeleteField of 'v loc_field
 (* todo: SetAttr but not Getter/Setter *)
 
-type 'v sfields =
-  | ConcreteFields of 'v prop IdMap.t
-  | PureFieldAction of ('v purefieldaction * 'v sfields)
-
 (* 'v is a svalue *)
-type 'v props = { fields : 'v sfields; more_but_fields : IdSet.t option }
-    (* if more_but_fields is Some set then the object can have more fields but not those in fields and in this set
-       if a field is in the set, then not only has-own-property return false but also has-property
-    *)
+type 'v props = {
+  pure_actions : 'v pure_action list ;
+  symb_fields : sid option ;
+  concrete_fields : 'v prop IdMap.t ;
+}
+(* this record should be understood as the set:
+   List.fold_left <apply_action> (concrete_fields UNION symb_fields) pure_actions
+*)
+
+
+(* 't is a state, 's is a state set *)
+type ('t, 's) _closure = ('t, 's) _svalue list -> 't -> 's
+and ('t, 's) _svalue =
+  | SConst of sconst
+  | SClosure of ('t, 's) _closure
+  | SHeapLabel of sheaplabel
+  | SSymb of (ssymb_type * ('t, 's) _ssymb)
+and ('t, 's) _ssymb =
+  | SId of sid
+  | SOp1 of string * ('t, 's) _svalue
+  | SOpF1 of string * ('t, 's) _svalue props * ('t, 's) _svalue
+  | SOp2 of string * ('t, 's) _svalue * ('t, 's) _svalue
+  | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
+  | SApp of ('t, 's) _svalue * ('t, 's) _svalue list
 
 type 'c internal_props = {
   proto : sheaplabel option;
@@ -214,7 +196,7 @@ type 'c internal_props = {
 
 
 let props_is_empty = function
-  | { fields = ConcreteFields m ; more_but_fields = None } when IdMap.is_empty m -> true
+  | { pure_actions = []; symb_fields = None; concrete_fields } when IdMap.is_empty concrete_fields -> true
   | _ -> false
 
 
@@ -230,6 +212,7 @@ struct
   let num f = SConst (CNum f)
   let str x = SConst (CString x)
   let sop1 ~typ o v = SSymb (typ, SOp1(o, v))
+  let sopF1 ~typ o p v = SSymb (typ, (SOpF1(o, p, v)))
   let sop2 ~typ o v1 v2 = SSymb (typ, SOp2(o, v1, v2))
   let sop3 ~typ o v1 v2 v3 = SSymb (typ, SOp3(o, v1, v2, v3))
   let sapp ~typ v vl = SSymb (typ, SApp(v, vl))
@@ -239,8 +222,9 @@ struct
     { proto = None; _class = "Object";
       extensible = false; code = None }
 
-  let empty_props =
-    { fields = ConcreteFields IdMap.empty; more_but_fields = None }
+  let concrete_props m =
+    { pure_actions = []; symb_fields = None; concrete_fields = m }
+  let empty_props = concrete_props IdMap.empty
   let empty_prop =
     { value = None; getter = None; setter = None;
       writable = false; config = false; enum = false }
@@ -250,4 +234,124 @@ struct
   let data_prop ?(b=false) v =
     { value = Some v; getter = None; setter = None;
       writable = b; config = b; enum = b }
+end
+
+module Abs =
+struct
+  open JS.Syntax
+
+  (* str_eq v1 v2
+     returns an abstraction of v1 == v2 assuming that they should be strings
+     Some true for true
+     Some false for false
+     None for maybe
+  *)
+  let str_eq =
+    (* const_const_l s1 s2
+       returns None if s1 if not a prefix of s2 and s2 is not a prefix of s1
+       returns Some (s1', s2') if s1 is a strict prefix of s2 (s1' = "") or if s2 is a strict prefix of s1 (s2' = "")
+    *)
+    let const_const_l s1 s2 =
+      let l1 = String.length s1 in
+      let l2 = String.length s2 in
+      let rec aux i =
+	if i = l1 then Some ("", String.after s2 i)
+	else if i = l2 then Some (String.after s1 i, "")
+	else if s1.[i] <> s2.[i] then None
+	else aux (i+1)
+      in aux 0
+    in
+    let const_const_r s1 s2 =
+      let l1 = String.length s1 in
+      let l2 = String.length s2 in
+      let rec aux i =
+	if i = l1 then Some ("", String.left s2 (l2-i))
+	else if i = l2 then Some (String.left s1 (l1-i), "")
+	else if s1.[l1-1-i] <> s2.[l2-1-i] then None
+	else aux (i+1)
+      in aux 0
+    in
+    let const_const s1 s2 = Some (s1 = s2)
+    in
+    let rec const_symb s1 s2 = match s2 with
+    | SOp2("string+", SConst (CString l2), r2) ->
+	begin match const_const_l s1 l2 with
+	| Some (r1, "") -> const_val r1 r2
+	| _ -> Some false
+	end
+    | SOp2("string+", l2, SConst (CString r2)) ->
+	begin match const_const_r s1 r2 with
+	| Some (l1, "") -> const_val l1 l2
+	| _ -> Some false
+	end
+    | SOp1("object-to-string", _) ->
+	if String.left s1 8 = "[object " && String.right s1 1 = "]" then
+	  None
+	else
+	  Some false
+    | SOp1("prim->str", SSymb(t, _)) ->
+	let may_eq = match t with
+	| TV (TP TBool) -> s1 = "true" || s1 = "false"
+	| TV (TP (TN TInt)) -> String.Numeric.is_signed_numeric s1
+	| TV (TP (TN _)) -> String.Numeric.is_float s1
+	| _ -> true
+	in
+	if may_eq then None else Some false
+    | SOp1(("surface-typeof"|"typeof"), _) ->
+	if List.mem s1 ["undefined";"null";"boolean";"number";"string";"object";"function"] then None else Some false
+    | _ -> None
+    and symb_symb s1 s2 = match s1, s2 with
+    | _ when s1 = s2 -> Some true
+    | SOp2("string+", l1, r1), SOp2("string+", l2, r2) ->
+	begin match val_val l1 l2 with
+	| Some true -> val_val r1 r2
+	| eql ->
+	    begin match val_val r1 r2 with
+	    | Some true -> eql
+	    | _ ->
+		begin match l1, r1, l2, r2 with
+		| SConst (CString l1), r1, SConst (CString l2), r2 ->
+		    begin match const_const_l l1 l2 with
+		    | Some ("", "") -> val_val r1 r2
+		    | Some (l1, "") -> symb_val (SOp2("string+", SConst (CString l1), r1)) r2
+		    | Some ("", l2) -> symb_val (SOp2("string+", SConst (CString l2), r2)) r1
+		    | _ -> Some false
+		    end
+		| l1, SConst (CString r1), l2, SConst (CString r2) ->
+		    begin match const_const_r r1 r2 with
+		    | Some ("", "") -> val_val l1 l2
+		    | Some (r1, "") -> symb_val (SOp2("string+", l1, SConst (CString r1))) l2
+		    | Some ("", r2) -> symb_val (SOp2("string+", l2, SConst (CString r2))) l1
+		    | _ -> Some false
+		    end
+		| _ -> None
+		end
+	    end
+	end
+    | SOp1("prim->str", SSymb(t, _)), s2
+    | s2, SOp1("prim->str", SSymb(t, _)) ->
+	begin match t with
+	| TV (TP TBool) ->
+	    begin match const_symb "true" s2, const_symb "false" s2 with
+	    | Some false, Some false -> Some false
+	    | _ -> None
+	    end
+	| _ -> None
+	end
+    | _ -> None
+    and const_val s1 v2 = match v2 with
+    | SConst (CString s2) -> const_const s1 s2
+    | SSymb (_, s2) -> const_symb s1 s2
+    | _ -> None
+    and symb_val s1 v2 = match v2 with
+    | SConst (CString s2) -> const_symb s2 s1
+    | SSymb (_, s2) -> symb_symb s1 s2
+    | _ -> None
+    and val_val v1 v2 = match v1 with
+    | _ when v1 = v2 -> Some true
+    | SConst (CString s1) -> const_val s1 v2
+    | SSymb (_, s1) -> symb_val s1 v2
+    | _ -> None
+    in val_val
+
 end

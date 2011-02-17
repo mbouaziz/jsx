@@ -109,6 +109,7 @@ sig
   val res_id : typ:SymbolicValue.ssymb_type -> sid -> 'a t -> set
   val res_op1 : typ:SymbolicValue.ssymb_type -> string -> svalue -> 'a t -> set
   val res_op2 : typ:SymbolicValue.ssymb_type -> string -> svalue -> svalue -> 'a t -> set
+  val res_opF1 : typ:SymbolicValue.ssymb_type -> string -> svalue SymbolicValue.props -> svalue -> 'a t -> set
 
   val exn : svalue sexn -> 'a t -> s
   val clean_exn : 'a t -> unit t
@@ -227,6 +228,7 @@ struct
       | SSymb (_, symb) -> match symb with
 	| SId _ -> labs
 	| SOp1(_, v) -> labs |> aux ~depth v
+	| SOpF1(_, p, v) -> labs |> aux_props ~depth p |> aux ~depth v
 	| SOp2(_, v1, v2) -> labs |> aux ~depth v1 |> aux ~depth v2
 	| SOp3(_, v1, v2, v3) -> labs |> aux ~depth v1 |> aux ~depth v2 |> aux ~depth v3
 	| SApp(v, vl) -> labs |> aux ~depth v |> List.fold_right (aux ~depth) vl
@@ -240,13 +242,12 @@ struct
 	  else
 	    let depth = depth - 1 in
 	    labs |> aux_props ~depth (SHeap.P.find l heap.p) |> aux_internal_props ~depth (SHeap.IP.find l heap.ip)
-      and aux_props ~depth { fields; _ } = aux_fields ~depth fields
-      and aux_fields ~depth = function
-	| ConcreteFields cf -> IdMap.fold (aux_prop ~depth) cf
-	| PureFieldAction (a, f) -> aux_fieldaction ~depth a @> aux_fields ~depth f
-      and aux_fieldaction ~depth = function
+      and aux_props ~depth { pure_actions; concrete_fields; _ } = aux_pure_actions ~depth pure_actions @> aux_concrete_fields ~depth concrete_fields
+      and aux_pure_actions ~depth pal = List.fold_leftr (aux_pure_action ~depth) pal
+      and aux_pure_action ~depth = function
 	| UpdateField (v1, v2) -> aux ~depth v1 @> aux ~depth v2
 	| DeleteField v -> aux ~depth v
+      and aux_concrete_fields ~depth = IdMap.fold (aux_prop ~depth)
       and aux_internal_props ~depth { proto; _ } = aux_opt ~depth proto
       and aux_prop ~depth _ prop = aux_optv ~depth prop.value @> aux_opt ~depth prop.getter @> aux_opt ~depth prop.setter
       and aux_optv ~depth = function Some v -> aux ~depth v | None -> (fun x -> x)
@@ -269,6 +270,8 @@ struct
 		  sprintf "%s(%s)" o (svalue s v)
 		else
 		  enclose (sprintf "%s %s" o (svalue ~brackets:true s v))
+	    | SOpF1 (o, p, v) ->
+		sprintf "%s(%s, %s)" o (sprops s p) (svalue s v)
 	    | SOp2 (o, v1, v2) ->
 		if Char.is_alpha o.[0] then
 		  sprintf "%s(%s, %s)" o (svalue s v1) (svalue s v2)
@@ -287,26 +290,20 @@ struct
     and spropattr_value s prop = match prop.value with
     | None -> "attrs"
     | Some v -> sprintf "#value: %s" (svalue s v)
-    and sprops s { fields; more_but_fields } = sfields s ~more_but_fields fields
-    and sfields s ~more_but_fields = function
-      | ConcreteFields cf ->
-	  let add_more l = match more_but_fields with
-	  | None -> l
-	  | Some but_fields ->
-	      let but = IdSet.to_list but_fields |> String.concat ", " in
-	      let but =
-		if but = "" then ""
-		else sprintf " (but %s)" but in
-	      l@[sprintf "& more%s" but]
-	  in
-	  let unit_prop (prop_id, prop) =
-	    sprintf "%s: {%s}" prop_id (spropattr_value s prop)
-	  in
-	  cf |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
-      | PureFieldAction (a, f) ->
+    and sprops s { pure_actions; symb_fields; concrete_fields } = spure_actions s (sfields s symb_fields concrete_fields) pure_actions
+    and sfields s symb_fields concrete_fields =
+      let add_more l = match symb_fields with
+      | None -> l
+      | Some sid -> l@[sprintf "& %s" (SId.to_string sid)] in
+      let unit_prop (prop_id, prop) = sprintf "%s: {%s}" prop_id (spropattr_value s prop) in
+      concrete_fields |> IdMap.bindings |> List.map unit_prop |> add_more |> String.concat ",\n"
+    and spure_actions s fields = function
+      | [] -> fields
+      | a::pure_actions ->
+	  let fields = String.interline " " (spure_actions s fields pure_actions) in
 	  match a with
-	  | UpdateField (f_loc, v) -> sprintf "updateField(%s <- %s,\n%s)" (svalue s f_loc) (svalue s v) (String.interline " " (sfields s ~more_but_fields f))
-	  | DeleteField f_loc -> sprintf "deleteField(%s,\n%s)" (svalue s f_loc) (String.interline " " (sfields s ~more_but_fields f))
+	  | UpdateField (f_loc, v) -> sprintf "updateField(%s <- %s,\n%s)" (svalue s f_loc) (svalue s v) fields
+	  | DeleteField f_loc -> sprintf "deleteField(%s,\n%s)" (svalue s f_loc) fields
 
     let svalue_list s vl = String.concat ", " (List.map (svalue s) vl)
 
@@ -540,6 +537,7 @@ struct
   let res_id ~typ id s = res_v (Mk.sid ~typ id) s
   let res_op1 ~typ o v s = res_v (Mk.sop1 ~typ o v) s
   let res_op2 ~typ o v1 v2 s = res_v (Mk.sop2 ~typ o v1 v2) s
+  let res_opF1 ~typ o p v s = res_v (Mk.sopF1 ~typ o p v) s
 
   let exn e s = { s with exn = Some e ; res = SExn e }
   let clean_exn s = { s with exn = None ; res = () }

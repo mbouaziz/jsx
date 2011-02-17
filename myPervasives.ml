@@ -9,6 +9,8 @@ module Char =
 struct
   include Char
 
+  let is_digit c = c >= '0' && c <= '9'
+
   let is_alpha = function
     | 'a'..'z' | 'A'..'Z' -> true
     | _ -> false
@@ -115,10 +117,18 @@ module String =
 struct
   include String
 
+  let rec index_list_from s c_list i =
+    if i >= String.length s then raise Not_found
+    else if List.mem s.[i] c_list then i
+    else index_list_from s c_list (i+1)
+
+  let index_list s c_list = index_list_from s c_list 0
+
   let index_or_zero s c = try index s c with Not_found -> 0
   let index_or_length s c = try index s c with Not_found -> length s
   let after s i = sub s i (length s - i)
   let safe_after s i = if i < 0 then s else if i >= length s then "" else after s i
+  let right s n = sub s (length s - 1) n
   let left s n = sub s 0 (min n (length s))
   let between s i1 i2 = sub s (i1+1) (max 0 (i2-i1-1))
 
@@ -133,6 +143,10 @@ struct
 
   let split2 char_sep s =
     try let i = index s char_sep in left s i, after s (i+1) with
+      Not_found -> s, ""
+
+  let split2_list char_list s =
+    try let i = index_list s char_list in left s i, after s (i+1) with
       Not_found -> s, ""
 
   let nsplit_char char_sep s =
@@ -158,10 +172,10 @@ struct
 
   let repl_char c1 c2 s = map_copy (fun c -> if c = c1 then c2 else c) s    
 
-  let for_all p s =
-    let res = ref true in
-    iter (fun c -> if not (p c) then res := false) s;
-    !res
+  let rec for_all_from p s i =
+    i >= String.length s || (p s.[i] && for_all_from p s (i+1))
+
+  let for_all p s = for_all_from p s 0
 
   let pad_left c len s =
     let l = length s in
@@ -174,9 +188,22 @@ struct
 
   module Numeric =
   struct
-    let is_numeric = for_all (fun c -> c >= '0' && c <= '9')
+    let is_signed_numeric s =
+      (s <> "") && (
+	((s.[0] = '-' || s.[0] = '+') && for_all_from Char.is_digit s 1)
+      || for_all Char.is_digit s)
+
+    let is_numeric = for_all Char.is_digit
 
     let is_zero = for_all ((=) '0')
+
+    let is_signed_decimal s =
+      let l, r = split2 '.' s in
+      is_signed_numeric l && is_numeric r
+
+    let is_float s =
+      let l, r = split2_list ['e';'E'] s in
+      is_signed_decimal l && (r = "" || is_signed_numeric r)
   end
 
   (* Converts an ASCII string to a big_int

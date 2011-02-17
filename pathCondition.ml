@@ -438,6 +438,7 @@ struct
       let prim sid = "sP" ^ (SId.to_string sid)
       let _ref sid = "sO" ^ (SId.to_string sid)
       let vany sid = "sV" ^ (SId.to_string sid)
+      let fields sid = "sF" ^ (SId.to_string sid)
     end
 
     module IntRepr =
@@ -485,6 +486,7 @@ struct
 
     let _t t = SymbolicValue.Typ.T t
     let of_op1 op tout (tx, x) = SMT.mk_appf (F.op op [|_t tx; _t tout|]) [| x |]
+    let of_opF1 op tout tp (tx, x) = SMT.mk_appf (F.op op [| SymbolicValue.Typ.TFields; _t tx; _t tout|]) [| tp; x |]
     let of_op2 op tout (tx, x) (ty, y) = SMT.mk_appf (F.op op [|_t tx; _t ty; _t tout|]) [| x ; y |]
     let of_op3 op tout x y z = failwith (sprintf "No SMT implementation for ternary operator \"%s\"" op)
     let of_app v tout l = failwith "No SMT implementation for symbolic applications"
@@ -509,6 +511,7 @@ struct
       | TV TVAny, SId sid -> tVAny, sid_val_var sid
       | _, SId _ -> assert false
       | typ, SOp1 (o, x) -> typ, of_op1 o typ (of_svalue x)
+      | typ, SOpF1 (o, p, x) -> typ, of_opF1 o typ (of_props p) (of_svalue x)
       | typ, SOp2 (o, x, y) -> typ, of_op2 o typ (of_svalue x) (of_svalue y)
       | typ, SOp3 (o, x, y, z) -> typ, of_op3 o typ (of_svalue x) (of_svalue y) (of_svalue z)
       | typ, SApp (v, l) -> typ, of_app typ (of_svalue v) (List.map of_svalue l)
@@ -517,6 +520,8 @@ struct
       | SHeapLabel heaplabel -> tRef, RefRepr.mk heaplabel
       | SSymb ts -> of_typed_symb ts
       | SClosure _ -> assert false (* really shouldn't happen, really?? *)
+    and of_props { pure_actions; symb_fields; concrete_fields } =
+      failwith "ToSMT.of_props"
 
     let of_predicate = function
       | PredVal v -> of_op1 "val->bool" tBool (of_svalue v)
@@ -542,9 +547,23 @@ struct
     | TV TVAny, SId sid -> StringMap.add (SId.to_string sid) (vany sid) m
     | _, SId _ -> assert false
     | _, SOp1 (_, v) -> of_svalue v m
+    | _, SOpF1 (_, p, v) -> m |> of_sprops p |> of_svalue v
     | _, SOp2 (_, v1, v2) -> m |> of_svalue v1 |> of_svalue v2
     | _, SOp3 (_, v1, v2, v3) -> m |> of_svalue v1 |> of_svalue v2 |> of_svalue v3
     | _, SApp (v, l) -> m |> of_svalue v |> List.fold_leftr of_svalue l
+    and of_sprops { pure_actions; concrete_fields; symb_fields} m = m |> of_pure_actions pure_actions |> of_concrete_fields concrete_fields |> of_symb_fields symb_fields
+    and of_pure_actions pa m = List.fold_left of_pure_action m pa
+    and of_pure_action m = function
+      | UpdateField(f, v) -> m |> of_loc_field f |> of_svalue v
+      | DeleteField f -> of_loc_field f m
+    and of_loc_field f m = of_svalue f m
+    and of_concrete_fields cf m = IdMap.fold of_prop cf m
+    and of_prop _ prop m = match prop with
+    | { value = Some v; _ } -> of_svalue v m
+    | { value = None; _ } -> m
+    and of_symb_fields sf m = match sf with
+    | Some sid -> StringMap.add (SId.to_string sid) (fields sid) m
+    | None -> m
 
     let of_pathcomponent m { pred ; _ } = match pred with
     | PredVal v | PredNotVal v -> of_svalue v m
