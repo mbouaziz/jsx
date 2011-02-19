@@ -5,6 +5,17 @@ Inspired by env-js by John Resig
 
 */
 
+var option_selectedIndex = false;
+/* option_selectedIndex
+
+  if true, will force branching on SelectElement.change()
+
+  if false, OptionElement won't have a .selected
+  and SelectElement won't have a .selectedIndex
+  and SelectElement.value will be a symbolic value
+ */
+
+
 var XMLHttpRequest = function() {
     this.open = function(method, uri, async) {
 	output("XMLHttpRequest.uri", uri);
@@ -61,15 +72,16 @@ var Events = new (function() {
   };
   var rand_generateEventForNode = function (obj_events) {
       var length = obj_events.events.length;
+      var obj = obj_events.obj;
       if (length == 1)
-	  obj_events.events[0].trigger(obj_events.obj);
+	  obj_events.events[0].trigger(obj);
       else {
-	  var numEv = symbol_int("evE");
+	  var numEv = symbol_int("evE_" + obj.id);
 	  assume(numEv >= 0);
 	  assume(numEv < length);
 	  for (var i = 0 ; i < length ; i++)
 	      if (i === numEv)
-		  return obj_events.events[i].trigger(obj_events.obj);
+		  return obj_events.events[i].trigger(obj);
       }
   };
   this.rand_generate = function (n) {
@@ -178,11 +190,11 @@ HTMLInputElement.prototype = new HTMLInputAreaCommon();
 Object.defineProperty(HTMLInputElement.prototype,"value",
   { get: function() { return this._value; },
     set: function(newvalue) {
-            output("set-value(" + this.id + ")", newvalue);
+            output(this.id + ".value", newvalue);
             this._value = newvalue;
          }
   });
-var __input_text_change__ = new Event("change", function () { this._value = symbol_string("input"); } );
+var __input_text_change__ = new Event("change", function () { this._value = symbol_string(this.id + ".value"); } );
 var __button_click__ = new Event("click", null);
 HTMLInputElement.prototype.__updateEvents__ = function () {
     if (this.disabled)
@@ -201,7 +213,7 @@ Object.defineProperty(HTMLInputElement.prototype,"type",
 
 HTMLElement.registerSetAttribute('input', 'value', function(node, value) {
   node._value = value;
-  output("set-value(" + node.id + ")", value);
+  output(node.id + ".value", value);
 });
 
 HTMLLabelElement = function() { HTMLInputCommon.apply(this, arguments); };
@@ -212,27 +224,32 @@ HTMLOptionElement = function() {
     this._selected = null;
 };
 HTMLOptionElement.prototype = new HTMLInputCommon();
-Object.defineProperty(HTMLOptionElement.prototype,"selected", {
-  get: function() { return this._selected; },
-  set: function(value) { this._selected = value?true:false; }
- });
+if (option_selectedIndex) {
+    Object.defineProperty(HTMLOptionElement.prototype,"selected", {
+      get: function() { return this._selected; },
+      set: function(value) { this._selected = value?true:false; }
+	});
+}
 
-HTMLSelectElement = function() {
-    HTMLTypeValueInputs.apply(this, arguments);
-};
+HTMLSelectElement = function() { HTMLTypeValueInputs.apply(this, arguments); };
 HTMLSelectElement.prototype = new HTMLTypeValueInputs();
-Object.defineProperty(HTMLSelectElement.prototype,"value",
-  { get: function() {
-	  var index = this.selectedIndex;
-	  return (index === -1) ? '' : this.options[index].value;
-      }
-  });
-var __select_change__ = new Event("change", function () {
-	var selIdx = symbol_int("selIdx");
-	assume(selIdx >= 0);
-	assume(selIdx < this.options.length);
-	this.selectedIndex = selIdx;
-    });
+if (option_selectedIndex) {
+    var __select_value__ = {
+	get: function() {
+	    var index = this.selectedIndex;
+	    return (index === -1) ? '' : this.options[index].value;
+	}};
+    var __select_change__ = new Event("change", function () {
+	    var selIdx = symbol_int(this.id + ".selectedIndex");
+	    assume(selIdx >= 0);
+	    assume(selIdx < this.options.length);
+	    this.selectedIndex = selIdx;
+	});
+} else {
+    var __select_value__ = { get: function() { return this._value; } };
+    var __select_change__ = new Event("change", function () { this._value = symbol_string(this.id + ".value"); });
+}
+Object.defineProperty(HTMLSelectElement.prototype,"value", __select_value__);
 HTMLSelectElement.prototype.__updateEvents__ = function() {
     if (this.disabled)
 	return this.__registerEvents__();
@@ -240,23 +257,25 @@ HTMLSelectElement.prototype.__updateEvents__ = function() {
 };
 HTMLSelectElement.prototype.change = function() { __select_change__.trigger(this); };
 Object.defineProperty(HTMLSelectElement.prototype,"options", { get: function() { return this.childNodes; } });
-Object.defineProperty(HTMLSelectElement.prototype,"selectedIndex",
-  { get: function() {
-	  var options = this.options;
-	  var imax = options.length;
-	  for (var i=0; i < imax; ++i)
-	      if (options[i].selected)
-		  return i;
-	  return -1;
-      },
-   set: function(value) {
-	  var options = this.options;
-	  var num = +value;
-	  var imax = options.length;
-	  for (var i=0; i < imax; ++i)
-	      options[i].selected = (i == num);
-      }
-  });
+if (option_selectedIndex) {
+  Object.defineProperty(HTMLSelectElement.prototype,"selectedIndex",
+    { get: function() {
+	    var options = this.options;
+	    var imax = options.length;
+	    for (var i=0; i < imax; ++i)
+		if (options[i].selected)
+		    return i;
+	    return -1;
+	},
+     set: function(value) {
+	    var options = this.options;
+	    var num = +value;
+	    var imax = options.length;
+	    for (var i=0; i < imax; ++i)
+		options[i].selected = (i == num);
+	}
+    });
+}
 
 // Merge HTMLDocument & Document
 HTMLDocument = function() { Node.apply(this, arguments); };
