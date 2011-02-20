@@ -114,6 +114,7 @@ let boolspeclist =
     "xeval", opt_xeval, "symbolic evaluation";
   ]
 
+let hide_default = true
 
 let arg_speclist =
   let speclist =
@@ -129,9 +130,12 @@ let arg_speclist =
     ]
   in
   let turn l (name, r, meaning) =
-    ("-" ^ name, Arg.Set r, " Turn on " ^ meaning ^ (if !r then " (default)" else ""))
-    ::("-no-" ^ name, Arg.Clear r, " Turn off " ^ meaning ^ (if !r then "" else " (default)"))
-    ::l
+    if hide_default then
+      ((if !r then "-no-" else "-") ^ name, (if !r then Arg.Clear r else Arg.Set r), sprintf " Turn %s %s" (if !r then "off" else "on") meaning)::l
+    else
+      ("-" ^ name, Arg.Set r, " Turn on " ^ meaning ^ (if !r then " (default)" else ""))
+      ::("-no-" ^ name, Arg.Clear r, " Turn off " ^ meaning ^ (if !r then "" else " (default)"))
+      ::l
   in
   Arg.align (List.sort Pervasives.compare (List.fold_left turn speclist boolspeclist))
 
