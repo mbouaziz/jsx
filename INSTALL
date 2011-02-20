@@ -1,16 +1,69 @@
 
-To build and install Jsx, you need:
+In the instructions, ~/jsx will refer to the root directory of Jsx (where this file should be)
 
-- OCaml compiler >= 3.12.0 with ocamlbuild and ocamlfind
+To build Jsx, you need:
+
+- OCaml compiler >= 3.12.0 (with ocamlbuild)
+    from a linux package (make sure version >= 3.12.0)
+
+    or installed from source: http://caml.inria.fr/download.en.html
+       (follow install instructions)
+       if cp -p is not allowed on your machine:
+       	 Assume you have extracted ocaml sources into ~/ocaml/
+         modify ~/ocaml/ocamlbuild/rule.ml: in module Common_commands, replace
+           let cp_p src dest = ...
+         by
+           let cp_p = cp
+         and ~/ocaml/ocamlbuild/shell.ml: in function cp_pf, replace "-pf" by "-f"
+	 $cd ~/ocaml
+	 $cp ~/jsx/install/ocaml/cp .
+	 $chmod 755 cp
+         $export PATH=`pwd`:$PATH
+	 you will only need this modified cp to compile ocaml (because a cp -p is hard coded in boot/myocamlbuild.boot)
+	 now you can try to compile again
+
+- findlib/ocamlfind
+    from a linux package
+
+    or installed from source: http://projects.camlcity.org/projects/findlib.html
+       (follow install instructions)
+
+- menhir
+    from a linux package
+
+    or installed from source: http://cristal.inria.fr/~fpottier/menhir/
+       (follow install instructions)
+
 - camlidl
+    from a linux package
+
+    or installed from source: http://forge.ocamlcore.org/projects/camlidl/
+       (follow install instructions)
+       $cd ~/jsx/install/camlidl
+       $sudo ocamlfind install camlidl META
+       sudo is only needed if ocaml is not locally installed
+
 - my modified version of LambdaJS
-    for example from my read-only git repository:
-    http://mehdi.bouaziz.org/git/lambdaJS/
+    from my git repository: http://mehdi.bouaziz.org/git/lambdaJS/
+    Assume you want LambdaJS sources to be in ~/lambdaJS
+    $cd
+    $git clone http://mehdi.bouaziz.org/git/lambdaJS/
+    $cd lambdaJS
+    $sudo make install
+    sudo is only needed if ocaml is not locally installed
+
 - Z3 linux distribution (tested with version 2.19)
     http://research.microsoft.com/en-us/um/redmond/projects/z3/download.html
-- sudo access (only if your OCaml distribution is not installed in a local directory)
+    Assume that you have extracted it into ~/z3/
+    $cd ~/z3
+    $cp -r ~/jsx/install/z3/* .
+    $sudo make install
+    sudo is only needed if ocaml is not locally installed
 
-Merge the z3 directory of Jsx into the Z3 distribution
-Build and install Z3 (sudo make install)
-Build and install LambdaJS (sudo make install)
-make
+Note:
+	Z3 needs at least GLIBC >= 2.4 and GLIBCXX >= 3.4.9
+	You won't be able to compile Jsx if you don't have these versions and I cannot help you
+
+Now, to compile Jsx:
+
+$make

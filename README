@@ -4,7 +4,12 @@ Jsx, a symbolic executor for Javascript
 For install instructions, read INSTALL
 
 To symbolically execute a .js file, do:
-./jsx.native myfile.js -env symbolic.es5 -env ../lambdaJS/data/es5-lib.es5
-According that lambdaJS sources are in ../lambdaJS
+  $./jsx.native myfile.js -env symbolic.es5 -env ../lambdaJS/data/es5-lib.es5
+Assuming that lambdaJS sources are in ../lambdaJS
 
-For further options, do: ./jsx.native -help
+If you get an error message about libz3.so, then you need to do once:
+  $sudo make ldconf
+or
+  $export LD_LIBRARY_PATH=`ocamlfind query Z3`:LD_LIBRARY_PATH
+
+For further options, do: $./jsx.native -help
