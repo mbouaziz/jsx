@@ -15,12 +15,31 @@ In PathCondition:
 - other orders of search
   - BFS (usefull for a join operator)
   - code coverage (DFS with priorities)
+  - shortest paths first (Dijkstra)
 
-- analysis of functions separately with function summaries (with guard)
+- analysis of functions separately with function summaries (with guard) interprocedural
 
-- option -smt-timeout (0 = -no-smt)
+- option -smt-timeout (0 => -no-smt)
 
 - in interactive mode, continue computation in the background
+
+- symbolic (uninterpreted) pure functions
+
+- function try_branching symb_val f_app f_fallback
+(could call the SMT solver ?)
+
+- bounding on:
+  - time
+  - nb-paths (done)
+  - recursion level
+
+Fun:
+
+- PHP bindings for Jsxweb
+
+- old(x) evaluates x in the context at the beginning of the function
+   - problem with the "arguments" stuff ?
+  
 
 XDelta:
 Optimization of some trivial cases
@@ -36,5 +55,6 @@ Compilation:
 
 LambdaJS:
 
+- constructors for AST
 - continue to implement the standard library
 - if new primitives are needed, add them in es5_delta.ml (lambdaJS), xDelta.ml (Jsx) and env.smt2 (Jsx SMT environment)
