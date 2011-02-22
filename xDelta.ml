@@ -495,47 +495,6 @@ let symbol_object ~pos v1 v2 s = match v1, v2 with
 | _ -> SState.err ~pos s "symbol_object, bad parameters"
 
 
-let symbolic_has_own_property ~pos label field s =
-  let typ = match field with
-  | SConst (CString _) | SSymb (TV (TP TStr), _) -> tBool
-  | _ -> tA
-  in
-  let rec simplify props = match props with
-  | { pure_actions = []; concrete_fields = m; _ } ->
-      let filter_eq f _ = Abs.str_eq (SConst (CString f)) field <> Some false in
-      let concrete_fields = IdMap.filter filter_eq m in
-      { props with concrete_fields }
-  | { pure_actions = ((UpdateField(f, _)) as a)::pa; _ }
-  | { pure_actions = ((DeleteField f) as a)::pa; _ } ->
-      if Abs.str_eq f field = Some false then
-	simplify { props with pure_actions = pa }
-      else
-	let props = simplify { props with pure_actions = pa } in
-	{ props with pure_actions = a::props.pure_actions }
-  in
-  let rec aux props = match props, field with
-  | { pure_actions = []; symb_fields = None; concrete_fields = m }, SConst (CString f) ->
-      SState.res_bool (IdMap.mem f m) s
-  | { pure_actions = []; symb_fields = Some _; concrete_fields = m }, SConst (CString f) when IdMap.mem f m ->
-      SState.res_true s
-  | { pure_actions = []; _ }, _ ->
-      SState.res_opF1 ~typ "has-own-property?" (simplify props) field s
-  | { pure_actions = (UpdateField(f, _))::pa; _ }, _ ->
-      begin match Abs.str_eq f field with
-      | Some true -> SState.res_true s
-      | Some false -> aux { props with pure_actions = pa }
-      | None -> SState.res_opF1 ~typ "has-own-property?" (simplify props) field s
-      end
-  | { pure_actions = (DeleteField f)::pa; _ }, _ ->
-      begin match Abs.str_eq f field with
-      | Some true -> SState.res_false s
-      | Some false -> aux { props with pure_actions = pa }
-      | None -> SState.res_opF1 ~typ "has-own-property?" (simplify props) field s
-      end
-  in
-  let props = SState.Heap.find_p label s in
-  aux props
-
     (* if IdMap.mem field fields then *)
     (*   SState.res_true s *)
     (* else begin match more_but_fields with *)
@@ -557,14 +516,82 @@ let symbolic_has_own_property ~pos label field s =
     (* 	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s *)
     (* end *)
 
-let has_own_property ~pos v1 v2 s = match v1, v2 with
-| SHeapLabel label, (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
-    symbolic_has_own_property ~pos label v2 s
-| SSymb (TV TRef, _), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
-    SState.res_op2 ~typ:tBool "has-own-property?" v1 v2 s
-| SSymb ((TV (TRef | TVAny) | TA), _), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
-    SState.res_op2 ~typ:tA "has-own-property?" v1 v2 s
-| _ -> SState.throw_str ~pos s "has-own-property?"
+let has_own_property ~pos v1 v2 s =
+  let typ = match v2 with
+  | SConst (CString _) | SSymb (TV (TP TStr), _) -> Some tBool
+  | SSymb ((TV (TP TPAny | TVAny) | TA), _) -> Some tA
+  | _ -> None
+  in
+  match v1, typ with
+  | SHeapLabel label, Some typ ->
+      let props = SState.Heap.find_p label s in
+      begin match Abs.has_own_property v2 props with
+      | Abs.ConcreteHasProperty b -> SState.res_bool b s
+      | Abs.SymbHasProperty props -> SState.res_opF1 ~typ "has-own-property?" props v2 s
+      end
+  | SSymb (TV TRef, _), Some typ ->
+      SState.err ~pos s "NYI symbolic reference"
+      (* SState.res_opH2 ~typ "has-own-property?" v1 v2 s *)
+  | _ -> SState.throw_str ~pos s "has-own-property?"
+
+let has_property ~pos v1 v2 s =
+  let typ = match v2 with
+  | SConst (CString _) | SSymb (TV (TP TStr), _) -> Some tBool
+  | SSymb ((TV (TP TPAny | TVAny) | TA), _) -> Some tA
+  | _ -> None
+  in
+  match v1, typ with
+  | SHeapLabel label, Some typ ->
+      (* TODO: keep has-property? symbolic until we need to branch *)
+      let find_p label = SState.Heap.find_p label s in
+      let find_ip label = SState.Heap.find_ip label s in
+      begin match Abs.has_property ~find_p ~find_ip v2 label with
+      | Abs.ConcreteHasProperty b -> SState.res_bool b s
+      | Abs.SymbHasProperty l_props -> SState.res_opF1 ~typ "has-property?" l_props v2 s
+      end
+  | SSymb (TV TRef, _), Some typ ->
+      SState.res_op2 ~typ "has-property?" v1 v2 s
+  | _ -> SState.throw_str ~pos s "has-property?"
+
+(* let has_property ~pos v1 v2 s = match v1, v2 with *)
+(* | SHeapLabel label, SConst (CString field) -> *)
+(*     let rec symbolic_has_prop label = *)
+(*       match concrete_has_prop label field s with *)
+(*       | Some b -> SState.res_bool b s *)
+(*       | None -> *)
+(* 	  let { fields; more_but_fields } as props = SState.Heap.find_p label s in *)
+(* 	  match more_but_fields with *)
+(* 	  | None -> *)
+(* 	      let { proto; _ } = SState.Heap.find_ip label s in *)
+(* 	      begin match proto with *)
+(* 	      | None -> assert false (\* already treated in concrete_has_prop *\) *)
+(* 	      | Some lab -> symbolic_has_prop lab *)
+(* 	      end *)
+(* 	  | Some but_fields -> *)
+(* 	      let has s = (\* todo: cf todo of has_own_property *\) *)
+(* 		let sid = SId.from_string ~fresh:true field in *)
+(* 		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in *)
+(* 		let props = { props with fields = IdMap.add field prop fields } in *)
+(* 		let s = SState.Heap.update_p label props s in *)
+(* 		SState.res_true s *)
+(* 	      in *)
+(* 	      let has_not s = *)
+(* 		let { proto; _ } = SState.Heap.find_ip label s in *)
+(* 		match proto with *)
+(* 		| None -> *)
+(* 		    let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in *)
+(* 		    let s = SState.Heap.update_p label props s in *)
+(* 		    SState.res_false s *)
+(* 		| Some lab -> symbolic_has_prop lab *)
+(* 	      in *)
+(* 	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s *)
+(*     in *)
+(*     symbolic_has_prop label *)
+(* | (SHeapLabel _ | SSymb (TV (TRef | TVAny), _)), (SConst (CString _) | SSymb (TV (TP (TStr | TPAny) | TVAny), _)) -> *)
+(*     SState.res_op2 ~typ:tBool "has-property?" v1 v2 s *)
+(* | (SHeapLabel _ | SSymb ((TV (TRef | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) -> *)
+(*     SState.res_op2 ~typ:tA "has-property?" v1 v2 s *)
+(* | _ -> SState.res_false s *)
 
 (*
   concrete_has_prop returns
@@ -572,63 +599,23 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
   Some false if has-property would return false
   None if there is some extensible object in the prototype chain of the object
 *)
-let rec concrete_has_prop label field s =
-  let { fields; more_but_fields } = SState.Heap.find_p label s in
-  if IdMap.mem field fields then
-    Some true
-  else
-    let proto_concrete_has_prop () =
-      let { proto; _ } = SState.Heap.find_ip label s in
-      match proto with
-      | None -> Some false
-      | Some lab -> concrete_has_prop lab field s
-    in
-    match more_but_fields with
-    | None -> proto_concrete_has_prop ()
-    | Some but_fields when IdSet.mem field but_fields -> Some false
-    | Some but_fields -> match proto_concrete_has_prop () with
-      | Some true -> Some true
-      | _ -> None
-
-let has_property ~pos v1 v2 s = match v1, v2 with
-| SHeapLabel label, SConst (CString field) ->
-    let rec symbolic_has_prop label =
-      match concrete_has_prop label field s with
-      | Some b -> SState.res_bool b s
-      | None ->
-	  let { fields; more_but_fields } as props = SState.Heap.find_p label s in
-	  match more_but_fields with
-	  | None ->
-	      let { proto; _ } = SState.Heap.find_ip label s in
-	      begin match proto with
-	      | None -> assert false (* already treated in concrete_has_prop *)
-	      | Some lab -> symbolic_has_prop lab
-	      end
-	  | Some but_fields ->
-	      let has s = (* todo: cf todo of has_own_property *)
-		let sid = SId.from_string ~fresh:true field in
-		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
-		let props = { props with fields = IdMap.add field prop fields } in
-		let s = SState.Heap.update_p label props s in
-		SState.res_true s
-	      in
-	      let has_not s =
-		let { proto; _ } = SState.Heap.find_ip label s in
-		match proto with
-		| None ->
-		    let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
-		    let s = SState.Heap.update_p label props s in
-		    SState.res_false s
-		| Some lab -> symbolic_has_prop lab
-	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
-    in
-    symbolic_has_prop label
-| (SHeapLabel _ | SSymb (TV (TRef | TVAny), _)), (SConst (CString _) | SSymb (TV (TP (TStr | TPAny) | TVAny), _)) ->
-    SState.res_op2 ~typ:tBool "has-property?" v1 v2 s
-| (SHeapLabel _ | SSymb ((TV (TRef | TVAny) | TA), _)), (SConst (CString _) | SSymb ((TV (TP (TStr | TPAny) | TVAny) | TA), _)) ->
-    SState.res_op2 ~typ:tA "has-property?" v1 v2 s
-| _ -> SState.res_false s
+(* let rec concrete_has_prop label field s = *)
+(*   let { fields; more_but_fields } = SState.Heap.find_p label s in *)
+(*   if IdMap.mem field fields then *)
+(*     Some true *)
+(*   else *)
+(*     let proto_concrete_has_prop () = *)
+(*       let { proto; _ } = SState.Heap.find_ip label s in *)
+(*       match proto with *)
+(*       | None -> Some false *)
+(*       | Some lab -> concrete_has_prop lab field s *)
+(*     in *)
+(*     match more_but_fields with *)
+(*     | None -> proto_concrete_has_prop () *)
+(*     | Some but_fields when IdSet.mem field but_fields -> Some false *)
+(*     | Some but_fields -> match proto_concrete_has_prop () with *)
+(*       | Some true -> Some true *)
+(*       | _ -> None *)
 
 let err_op2 ~op ~pos _ _ s = SState.err ~pos s (sprintf "Error [xeval] No implementation of binary operator \"%s\"" op)
 

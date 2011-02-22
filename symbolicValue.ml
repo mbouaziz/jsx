@@ -245,8 +245,10 @@ struct
      Some true for true
      Some false for false
      None for maybe
+
+     In str_eq_const, v1 is a concrete string
   *)
-  let str_eq =
+  let str_eq, str_eq_const =
     (* const_const_l s1 s2
        returns None if s1 if not a prefix of s2 and s2 is not a prefix of s1
        returns Some (s1', s2') if s1 is a strict prefix of s2 (s1' = "") or if s2 is a strict prefix of s1 (s2' = "")
@@ -352,6 +354,102 @@ struct
     | SConst (CString s1) -> const_val s1 v2
     | SSymb (_, s1) -> symb_val s1 v2
     | _ -> None
-    in val_val
+    in val_val, const_val
+
+  let rec simplify_props field props = match props with
+  | { pure_actions = []; concrete_fields = m; _ } ->
+      let filter_eq f _ = str_eq (SConst (CString f)) field <> Some false in
+      let concrete_fields = IdMap.filter filter_eq m in
+      { props with concrete_fields }
+  | { pure_actions = ((UpdateField(f, _)) as a)::pa; _ }
+  | { pure_actions = ((DeleteField f) as a)::pa; _ } ->
+      if str_eq f field = Some false then
+	simplify_props field { props with pure_actions = pa }
+      else
+	let props = simplify_props field { props with pure_actions = pa } in
+	{ props with pure_actions = a::props.pure_actions }
+
+
+  type 'a has_property_t =
+    | ConcreteHasProperty of bool
+    | SymbHasProperty of 'a
+
+  (* has_own_property field props
+     returns
+     ConcreteHasProperty true if props has own property field
+     ConcreteHasProperty false if props doesn't have own property field
+     SymbHasProperty props' if it may have own property field with props' = props with only fields that can be equal to field
+  *)
+  let rec has_own_property field props = match props, field with
+  | { pure_actions = []; symb_fields = None; concrete_fields = m }, SConst (CString f) ->
+      ConcreteHasProperty (IdMap.mem f m)
+  | { pure_actions = []; symb_fields = Some _; concrete_fields = m }, SConst (CString f) when IdMap.mem f m ->
+      ConcreteHasProperty true
+  | { pure_actions = []; _ }, _ ->
+      SymbHasProperty (simplify_props field props)
+  | { pure_actions = ((UpdateField(f, _)) as a)::pa; _ }, _ ->
+      begin match str_eq f field with
+      | Some true -> ConcreteHasProperty true
+      | Some false -> has_own_property field { props with pure_actions = pa }
+      | None ->
+	  match has_own_property field { props with pure_actions = pa } with
+	  | ConcreteHasProperty true -> ConcreteHasProperty true
+	  | ConcreteHasProperty false -> SymbHasProperty { props with pure_actions = [a]; concrete_fields = IdMap.empty }
+	  | SymbHasProperty props -> SymbHasProperty { props with pure_actions = a::props.pure_actions }
+      end
+  | { pure_actions = (DeleteField f)::pa; _ }, _ ->
+      begin match str_eq f field with
+      | Some true -> ConcreteHasProperty false
+      | Some false -> has_own_property field { props with pure_actions = pa }
+      | None -> SymbHasProperty (simplify_props field props)
+      end
+
+  (* has_property acts like has_own_property but
+     it gets two functions find_p, find_ip corresponding
+     to SState.Heap.find_p, find_ip for the current heap
+     In case of SymbHasProperty, it returns a list of props
+     (corresponding to the prototype chain)
+  *)
+  let has_property ~find_p ~find_ip field label =
+    let rec aux_label label = aux_props (find_p label)
+    and aux_props props = match props, field with
+    | { pure_actions = []; symb_fields = _; concrete_fields = m }, SConst (CString f) when IdMap.mem f m ->
+	ConcreteHasProperty true
+    | { pure_actions = []; symb_fields; _ }, _ ->
+	let { proto; _ } = find_ip label in
+	begin match proto, symb_fields with
+	| None, None -> ConcreteHasProperty false
+	| None, Some _ -> SymbHasProperty [simplify_props field props]
+	| Some label_proto, None -> aux_label label_proto
+	| Some label_proto, Some _ ->
+	    match aux_label label_proto with
+	    | ConcreteHasProperty true -> ConcreteHasProperty true
+	    | ConcreteHasProperty false -> SymbHasProperty [simplify_props field props]
+	    | SymbHasProperty l_props -> SymbHasProperty ((simplify_props field props)::l_props)
+	end
+    | { pure_actions = ((UpdateField(f, _)) as a)::pa; _}, _ ->
+	begin match str_eq f field with
+	| Some true -> ConcreteHasProperty true
+	| Some false -> aux_props { props with pure_actions = pa }
+	| None ->
+	    match aux_props { props with pure_actions = pa } with
+	    | ConcreteHasProperty true -> ConcreteHasProperty true
+	    | ConcreteHasProperty false -> SymbHasProperty [{ props with pure_actions = [a]; concrete_fields = IdMap.empty }]
+	    | SymbHasProperty (props::l_props) -> SymbHasProperty ({ props with pure_actions = a::props.pure_actions }::l_props)
+	    | SymbHasProperty [] -> assert false
+	end
+    | { pure_actions = ((DeleteField f) as a)::pa; _ }, _ ->
+	begin match str_eq f field with
+	| Some true -> ConcreteHasProperty false
+	| Some false -> aux_props { props with pure_actions = pa }
+	| None ->
+	    match aux_props { props with pure_actions = pa } with
+	    | ConcreteHasProperty true -> SymbHasProperty [{ pure_actions = [a; UpdateField(field, Mk.sundefined)]; symb_fields = None; concrete_fields = IdMap.empty }]
+	    | ConcreteHasProperty false -> SymbHasProperty [{ pure_actions = [a]; symb_fields = None; concrete_fields = IdMap.empty }]
+	    | SymbHasProperty (props::l_props) -> SymbHasProperty ({ props with pure_actions = a::props.pure_actions }::l_props)
+	    | SymbHasProperty [] -> assert false
+	end
+    in
+    aux_label label
 
 end
