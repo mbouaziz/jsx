@@ -3,7 +3,7 @@ In the instructions, ~/jsx will refer to the root directory of Jsx (where this f
 
 To build Jsx, you need:
 
-- OCaml compiler >= 3.12.0 (with ocamlbuild)
+- OCaml compiler >= 3.12.0 (includes ocamlbuild, ocamldoc, ...)
     from a linux package (make sure version >= 3.12.0)
 
     or installed from source: http://caml.inria.fr/download.en.html
@@ -60,10 +60,13 @@ To build Jsx, you need:
     $sudo make install
     sudo is only needed if ocaml is not locally installed
 
-Note:
-	Z3 needs at least GLIBC >= 2.4 and GLIBCXX >= 3.4.9
-	You won't be able to compile Jsx if you don't have these versions and I cannot help you
+Notice:
+    Z3 needs at least GLIBC >= 2.4 and GLIBCXX >= 3.4.9
+    You won't be able to compile Jsx if you don't have these versions and I cannot help you
 
-Now, to compile Jsx:
-
+To compile Jsx:
 $make
+
+To build the documentation:
+$make doc
+And run your browser on jsx.docdir/index.html

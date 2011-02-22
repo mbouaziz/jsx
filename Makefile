@@ -1,7 +1,7 @@
 
 OCBOPTIONS=-j 2 -classic-display
 
-.PHONY: all jsx clean web clean-web ldconf
+.PHONY: all jsx clean web clean-web doc ldconf
 
 all: jsx
 
@@ -32,3 +32,6 @@ clean-web:
 
 ldconf:
 	ldconfig "`ocamlfind query Z3`"
+
+doc:
+	ocamlbuild $(OCBOPTIONS) jsx.docdir/index.html

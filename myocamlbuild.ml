@@ -47,7 +47,7 @@ let _ = dispatch begin function
        Options.ocamlc     := ocamlfind & S[A"ocamlc";A"-rectypes"];
        Options.ocamlopt   := ocamlfind & S[A"ocamlopt";A"-rectypes"];
        Options.ocamldep   := ocamlfind & A"ocamldep";
-       Options.ocamldoc   := ocamlfind & A"ocamldoc";
+       Options.ocamldoc   := ocamlfind & S[A"ocamldoc";A"-rectypes"];
        Options.ocamlmktop := ocamlfind & A"ocamlmktop"
 
    | After_rules ->
