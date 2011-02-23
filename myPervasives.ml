@@ -1,6 +1,7 @@
 
 include LambdaJS.Prelude
 
+let (&) f x = f x
 let (|>) x f = f x
 let (@>) f g x = g (f x)
 

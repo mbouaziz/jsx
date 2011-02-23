@@ -5,8 +5,8 @@ struct
 
   type input_type =
     | File of string
-    | InChannel of string * in_channel
-    | String of string * string
+    | InChannel of (string * in_channel)
+    | String of (string * string)
 
   type code_type = JS | LJS | Env
 
@@ -34,6 +34,12 @@ struct
     in
     add_file inputs code_type filename
 
+  let std_env = [
+    "<standard symbolic environment>", Envs.symbolic_es5;
+    "<standard LambdaJS environment>", LambdaJS.Lib.es5_lib_es5;
+  ]
+  let add_std_env inputs =
+    List.iter (fun in_str -> add_input inputs Env & String in_str) std_env
 end
 
 module OtherOptions =
@@ -90,6 +96,7 @@ let opt_interactive = ref false
 let opt_model = ref true
 let opt_pretty = ref false
 let opt_smt = ref true
+let opt_std_env = ref true
 let opt_symbols = ref true
 let opt_xeval = ref true
 
@@ -110,6 +117,7 @@ let boolspeclist =
     "model", opt_model, "SMT model";
     "pretty", opt_pretty, "pretty print code";
     "smt", opt_smt, "SMT solver";
+    "std-env", opt_std_env, "standard LambdaJS environments";
     "symb", opt_symbols, "symbols in symbolic evaluation";
     "xeval", opt_xeval, "symbolic evaluation";
   ]
@@ -121,7 +129,7 @@ let arg_speclist =
     [
       "-js", Arg.String (add_file inputs JS), "<file> Load <file> as JavaScript";
       "-ljs", Arg.String (add_file inputs LJS), "<file> Load <file> as LambaJS-ES5";
-      "-env", Arg.String (add_file inputs Env), "<file> Load <file> as environment (LambdaJS.ES5)";
+      "-env", Arg.String (add_file inputs Env), "<file> Load <file> as environment (LambdaJS-ES5)";
       "-nb-paths", Arg.Int set_nb_paths, "<integer> Will stop after the given number of paths";
       "-save-set", Arg.String set_save_set, "<file> Save states set to a file (to be loaded with -load-set)";
       "-load-set", Arg.String set_load_set, "<file> Load a states set from a file (previously saved with -save-set)";

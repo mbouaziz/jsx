@@ -2,4 +2,4 @@
 Have the lasted versions of LambdaJS & Jsx installed/compiled
 In the root of Jsx, run:
 
-./jsx.native tests/curr/minidom.js tests/curr/dom_setup.js tests/curr/currency.js tests/curr/gen_events.js -env symbolic.es5 -env ../lambdaJS/data/es5-lib.es5 -interactive
+./jsx.native tests/curr/minidom.js tests/curr/dom_setup.js tests/curr/currency.js tests/curr/gen_events.js -interactive

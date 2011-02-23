@@ -3,6 +3,7 @@ module Delta = Es5_delta
 module Desugar = Es5_desugar
 module Eval = Es5_eval
 module Lexer = Es5_lexer
+module Lib = Es5_lib
 module Parser = Es5_parser
 module Prelude = Prelude
 module Pretty = Es5_pretty

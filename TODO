@@ -33,6 +33,8 @@ In PathCondition:
   - nb-paths (done)
   - recursion level
 
+- assert must branch
+
 Fun:
 
 - PHP bindings for Jsxweb
@@ -49,9 +51,11 @@ Compilation:
 
 - static compilation of Z3 bindings to be able to use JsxWeb again
 
-- embed environments (es5-lib.es5, symbolic.es5, env.smt2)
-
 - try with other SMT solvers
+
+- option to replace the SMT env
+
+- optimize embedded environments (print them as OCaml values instead of parsing them each time) with a priority on the SMT env
 
 LambdaJS:
 

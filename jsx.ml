@@ -90,6 +90,8 @@ let main () =
     | None ->
 	if !Options.inputs = [] then
 	  Options.error_usage "No input";
+	if !Options.opt_std_env then
+	  Options.Inputs.add_std_env Options.inputs;
 	if List.for_all (function (Options.Inputs.Env, _) -> false | _ -> true) !Options.inputs then
 	  warning "Desugaring without environment";
 	let raw_ljs = Parsers.from_inputs (!Options.inputs) in

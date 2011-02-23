@@ -24,9 +24,7 @@ let empty_env ctx = {
   funs = StringMmap.empty ;
 }
 
-let env_filename = "env.smt2" |>
-  Filename.concat Filename.parent_dir_name |>
-  Filename.concat (Filename.dirname Sys.executable_name)
+let env_filename = "<internal STM2 environment>"
 
 
 let _log lazy_v = match !Options.OtherOptions.opt_smt_log with
@@ -435,14 +433,12 @@ pop symb env.funs }
 
   let load env =
     let open Lexing in
-    let ich = open_in env_filename in
-    let lexbuf = from_channel ich in
+    let lexbuf = from_string Envs.env_smt2 in
     lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = env_filename };
     let smt2ast = try SMTLib2Parser.script SMTLib2Lexer.token lexbuf with
     | Failure "lexing: empty token"
     | SMTLib2Parser.Error -> failwith (sprintf "%s\nParse error: unexpected token \"%s\"" (pretty_position (lexeme_start_p lexbuf, lexeme_end_p lexbuf)) (lexeme lexbuf))
     in
-    close_in ich;
     of_script env smt2ast
 
 end
