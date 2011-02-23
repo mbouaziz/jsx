@@ -25,6 +25,8 @@ struct
   let of_int l = l
 end
 
+module LabelSet = Set.Make(HeapLabel)
+
 module LabMap =
 struct
   module type LabOrderedType =
@@ -125,18 +127,6 @@ let tA = TA
 module Typ =
 struct
 
-  let cmp t1 t2 = match t1, t2 with
-  | t1, t2 when t1 = t2 -> Some 0
-  | _, TA
-  | TV _, TV TVAny
-  | TV (TP _), TV (TP TPAny)
-  | TV (TP (TN _)), TV (TP (TN TNAny)) -> Some (-1)
-  | TA, _
-  | TV TVAny, TV _
-  | TV (TP TPAny), TV (TP _)
-  | TV (TP (TN TNAny)), TV (TP (TN _)) -> Some 1
-  | _, _ -> None
-
   type ex_typ = TUndef | TNull | T of ssymb_type
 
   let prim_types = [ tBool; tInt; tNum; tStr; tRef ]
@@ -149,34 +139,31 @@ struct
 
   type f_type = ex_typ array
 
-  module TypMap =
-  struct
-    module FTyp =
-    struct
-      type t = f_type
-      let compare = Pervasives.compare
-    end
-    include Map.Make(FTyp)
-  end
+  module TypMap = Map.Make(struct
+			     type t = f_type
+			     let compare = Pervasives.compare
+			   end)
 end
 
 type sconst = JS.Syntax.const
 type sheaplabel = HeapLabel.t
 type sid = SId.t
 
-(* 't is a state, 's is a state set *)
-type ('t, 's) _closure = ('t, 's) _svalue list -> 't -> 's
-and ('t, 's) _svalue =
+(* 'c is a closure *)
+type 'c _svalue =
   | SConst of sconst
-  | SClosure of ('t, 's) _closure
+  | SClosure of 'c
   | SHeapLabel of sheaplabel
-  | SSymb of (ssymb_type * ('t, 's) _ssymb)
-and ('t, 's) _ssymb =
+  | SSymb of (ssymb_type * 'c _ssymb)
+and 'c _ssymb =
   | SId of sid
-  | SOp1 of string * ('t, 's) _svalue
-  | SOp2 of string * ('t, 's) _svalue * ('t, 's) _svalue
-  | SOp3 of string * ('t, 's) _svalue * ('t, 's) _svalue * ('t, 's) _svalue
-  | SApp of ('t, 's) _svalue * ('t, 's) _svalue list
+  | SOp1 of string * 'c _svalue
+  | SOp2 of string * 'c _svalue * 'c _svalue
+  | SOp3 of string * 'c _svalue * 'c _svalue * 'c _svalue
+  | SApp of 'c _svalue * 'c _svalue list
+
+(* 't is a state, 's is a state set *)
+type ('t, 's) _closure = ('t, 's) _closure _svalue list -> 't -> 's
 
 type 'a prop = {
   value : 'a option;
@@ -224,7 +211,6 @@ struct
   let internal_props =
     { proto = None; _class = "Object";
       extensible = false; code = None }
-
   let empty_props =
     { fields = IdMap.empty; more_but_fields = None }
   let empty_prop =
@@ -237,3 +223,53 @@ struct
     { value = Some v; getter = None; setter = None;
       writable = b; config = b; enum = b }
 end
+
+
+module SOutput :
+sig
+  type 'a t
+  val empty : 'a t
+  val to_string : ('a -> string) -> 'a t -> string
+  val print : 'a -> 'a t -> 'a t
+  val warning: string -> 'a t -> 'a t
+  val values : 'a t -> 'a list
+end =
+struct
+  type 'a line =
+    | SAlpha of 'a
+    | SString of string
+
+  type 'a t = 'a line list
+
+  let empty = []
+
+  let line_to_string alpha_to_string = function
+    | SAlpha a -> alpha_to_string a
+    | SString s -> s
+
+  let to_string alpha_to_string = List.rev_map (line_to_string alpha_to_string) @> String.concat "\n"
+
+  let print x sout = (SAlpha x)::sout
+
+  let warning str sout = (SString str)::sout
+
+  let val_of_line = function
+    | SAlpha a -> Some a
+    | SString _ -> None
+
+  let values sout = List.filter_map val_of_line sout
+end
+
+type err = string
+
+type pos = Lexing.position * Lexing.position
+
+type 'a sexnval = | SBreak of LambdaJS.Values.label * 'a
+		  | SThrow of 'a
+		  | SError of err
+
+type ('a, 'c) _sexn = (pos * 'c) * 'a sexnval
+
+type ('a, 'b) rvalue =
+  | SValue of 'a
+  | SExn of 'b

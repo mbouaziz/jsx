@@ -31,11 +31,11 @@ let bool_neg ~pos v s = match v with
 
 let eval ~pos v s = match v with
 | SConst (CString x) ->
-    begin match SState.CallStack.top s with
+    begin match CallStack.top s with
     | None -> SState.err ~pos s "I don't know from where eval is called"
     | Some call ->
-	let call_pos = SState.CallStack.call_pos call in
-	let call_env = SState.CallStack.call_env call in
+	let call_pos = CallStack.call_pos call in
+	let call_env = CallStack.call_env call in
 	let fname = sprintf "eval@%s" (string_of_position call_pos) in
 	let lexbuf = Lexing.from_string x in
 	lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fname };
@@ -48,9 +48,9 @@ let eval ~pos v s = match v with
 	| SValue parsed_js ->
 	    let fine_ljs = parsed_js |> JS.Interm.from_javascript |> LambdaJS.Desugar.ds_top |> LambdaJS.Desugar.desugar in
 	    s
-	    |> SState.Env.push call_env
+	    |> Env.push call_env
 	    |> xeval fine_ljs
-	    |> SState.map_unit SState.Env.pop
+	    |> SState.map_unit Env.pop
     end
 | SSymb (TV (TP TStr), _)
 | SSymb ((TV (TP TPAny | TVAny) | TA), _) -> SState.err ~pos s "Eval of a symbolic value"
@@ -60,7 +60,7 @@ let fail ~pos v s = SState.res_false s (* no such thing in my implementation *)
 
 let get_proto ~pos v s = match v with
 | SHeapLabel label ->
-    let { proto ; _ } = SState.Heap.find_ip label s in
+    let { proto ; _ } = Heap.find_ip label s in
     begin match proto with
     | Some proto -> SState.res_heaplabel proto s
     | None -> SState.res_undef s
@@ -71,7 +71,7 @@ let get_proto ~pos v s = match v with
 
 let is_array ~pos v s = match v with
 | SHeapLabel label ->
-    let { _class ; _ } = SState.Heap.find_ip label s in
+    let { _class ; _ } = Heap.find_ip label s in
     SState.res_bool (_class = "Array") s
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "is-array" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "is-array" v s
@@ -79,7 +79,7 @@ let is_array ~pos v s = match v with
 
 let is_callable ~pos v s = match v with
 | SHeapLabel label ->
-    let { code ; _ } = SState.Heap.find_ip label s in
+    let { code ; _ } = Heap.find_ip label s in
     SState.res_bool (code <> None) s
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "ref-is-callable" v s
 | SSymb (TV TVAny, _) -> SState.res_op1 ~typ:tBool "is-callable" v s
@@ -88,7 +88,7 @@ let is_callable ~pos v s = match v with
 
 let is_extensible ~pos v s = match v with
 | SHeapLabel label ->
-    let { extensible ; _ } = SState.Heap.find_ip label s in
+    let { extensible ; _ } = Heap.find_ip label s in
     SState.res_bool extensible s
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tBool "is-extensible" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "is-extensible" v s
@@ -96,7 +96,7 @@ let is_extensible ~pos v s = match v with
 
 let object_to_string ~pos v s = match v with
 | SHeapLabel label ->
-    let { _class ; _ } = SState.Heap.find_ip label s in
+    let { _class ; _ } = Heap.find_ip label s in
     SState.res_str (sprintf "[object %s]" _class) s
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tStr "object-to-string" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "object-to-string" v s
@@ -105,7 +105,7 @@ let object_to_string ~pos v s = match v with
 
 let get_own_property_names ~pos v s = match v with
 | SHeapLabel label ->
-    let props = SState.Heap.find_p label s in
+    let props = Heap.find_p label s in
     if props.more_but_fields <> None then
       SState.res_op1 ~typ:tRef "own-property-names" v s
     else
@@ -121,8 +121,8 @@ let get_own_property_names ~pos v s = match v with
 
 let prevent_extensions ~pos v s = match v with
 | SHeapLabel label ->
-    let internal_props = SState.Heap.find_ip label s in
-    let s = SState.Heap.update_ip label { internal_props with extensible = false } s in
+    let internal_props = Heap.find_ip label s in
+    let s = Heap.update_ip label { internal_props with extensible = false } s in
     SState.res_v v s
 | SSymb (TV TRef, _) -> SState.res_op1 ~typ:tRef "prevent-extensions" v s
 | SSymb ((TV TVAny | TA), _) -> SState.res_op1 ~typ:tA "prevent-extensions" v s
@@ -191,12 +191,12 @@ let is_primitive ~pos v s = match v with
 | SSymb (TA, _) -> SState.res_op1 ~typ:tA "primitive?" v s
 | _ -> SState.res_false s
 
-let print ~pos v s = s |> SState.Output.print ~name:"" v |> SState.singleton
+let print ~pos v s = s |> Output.print ~name:"" v |> SState.singleton
 
 let surface_typeof ~pos v s = match v with
 | SConst c -> const_typeof ~fname:"surface-typeof" ~pos c s
 | SHeapLabel label ->
-    let { code; _ } = SState.Heap.find_ip label s in
+    let { code; _ } = Heap.find_ip label s in
     SState.res_str (if code = None then "object" else "function") s
 | SSymb (TV (TP TBool), _) -> SState.res_str "boolean" s
 | SSymb (TV (TP (TN _)), _) -> SState.res_str "number" s
@@ -209,11 +209,11 @@ let surface_typeof ~pos v s = match v with
 let get_property_names ~pos v s = match v with
 | SHeapLabel label ->
     let rec all_protos_props label = (* Return None if there is a symbolic value that can contribute to the protos props *)
-      let { fields; more_but_fields } = SState.Heap.find_p label s in
+      let { fields; more_but_fields } = Heap.find_p label s in
       if more_but_fields <> None then
 	None
       else
-	let { proto; _ } = SState.Heap.find_ip label s in
+	let { proto; _ } = Heap.find_ip label s in
 	match proto with
 	| Some lab ->
 	    begin match all_protos_props lab with
@@ -289,8 +289,8 @@ let err_op1 ~op ~pos _ s = SState.err ~pos s (sprintf "Error [xeval] No implemen
 
 let op1 ~pos op v s =
   let f = match op with
-  | "assert" -> SState.PathCondition._assert
-  | "assume" -> SState.PathCondition.assume
+  | "assert" -> PathCondition._assert
+  | "assume" -> PathCondition.assume
   | "bool!" -> bool_neg
   | "eval" -> eval
   | "fail?" -> fail
@@ -471,7 +471,7 @@ let stx_eq ~pos v1 v2 s = match v1, v2 with
 | _ -> SState.res_false s
 
 let output ~pos v1 v2 s = match v1 with
-| SConst (CString name) -> s |> SState.Output.print ~name v2 |> SState.singleton
+| SConst (CString name) -> s |> Output.print ~name v2 |> SState.singleton
 | _ -> SState.err ~pos s "output expected its first argument to be a non-symbolic string"
 
 let string_plus ~pos v1 v2 s = match v1, v2 with
@@ -486,10 +486,10 @@ let string_plus ~pos v1 v2 s = match v1, v2 with
 
 let symbol_object ~pos v1 v2 s = match v1, v2 with
 | SConst (CString _ | CInt _), SHeapLabel label ->
-    let props = SState.Heap.find_p label s in
+    let props = Heap.find_p label s in
     if props.more_but_fields = None then
       let props = { props with more_but_fields = Some IdSet.empty } in
-      let s = SState.Heap.update_p label props s in
+      let s = Heap.update_p label props s in
       SState.res_heaplabel label s
     else
       SState.err ~pos s "object can already have more fields"
@@ -497,7 +497,7 @@ let symbol_object ~pos v1 v2 s = match v1, v2 with
 
 let has_own_property ~pos v1 v2 s = match v1, v2 with
 | SHeapLabel label, SConst (CString field) ->
-    let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+    let { fields; more_but_fields } as props = Heap.find_p label s in
     if IdMap.mem field fields then
       SState.res_true s
     else begin match more_but_fields with
@@ -508,15 +508,15 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
 	  let sid = SId.from_string ~fresh:true field in
 	  let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 	  let props = { props with fields = IdMap.add field prop fields } in
-	  let s = SState.Heap.update_p label props s in
+	  let s = Heap.update_p label props s in
 	  SState.res_true s
 	in
 	let has_not s =
 	  let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
-	  let s = SState.Heap.update_p label props s in
+	  let s = Heap.update_p label props s in
 	  SState.res_false s
 	in
-	SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
+	PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
     end
 | (SHeapLabel _ | SSymb (TV TRef, _)), (SConst (CString _) | SSymb (TV (TP TStr), _)) ->
     SState.res_op2 ~typ:tBool "has-own-property?" v1 v2 s
@@ -531,12 +531,12 @@ let has_own_property ~pos v1 v2 s = match v1, v2 with
   None if there is some extensible object in the prototype chain of the object
 *)
 let rec concrete_has_prop label field s =
-  let { fields; more_but_fields } = SState.Heap.find_p label s in
+  let { fields; more_but_fields } = Heap.find_p label s in
   if IdMap.mem field fields then
     Some true
   else
     let proto_concrete_has_prop () =
-      let { proto; _ } = SState.Heap.find_ip label s in
+      let { proto; _ } = Heap.find_ip label s in
       match proto with
       | None -> Some false
       | Some lab -> concrete_has_prop lab field s
@@ -554,10 +554,10 @@ let has_property ~pos v1 v2 s = match v1, v2 with
       match concrete_has_prop label field s with
       | Some b -> SState.res_bool b s
       | None ->
-	  let { fields; more_but_fields } as props = SState.Heap.find_p label s in
+	  let { fields; more_but_fields } as props = Heap.find_p label s in
 	  match more_but_fields with
 	  | None ->
-	      let { proto; _ } = SState.Heap.find_ip label s in
+	      let { proto; _ } = Heap.find_ip label s in
 	      begin match proto with
 	      | None -> assert false (* already treated in concrete_has_prop *)
 	      | Some lab -> symbolic_has_prop lab
@@ -567,19 +567,19 @@ let has_property ~pos v1 v2 s = match v1, v2 with
 		let sid = SId.from_string ~fresh:true field in
 		let prop = Mk.data_prop ~b:true (Mk.sid ~typ:tVAny sid) in
 		let props = { props with fields = IdMap.add field prop fields } in
-		let s = SState.Heap.update_p label props s in
+		let s = Heap.update_p label props s in
 		SState.res_true s
 	      in
 	      let has_not s =
-		let { proto; _ } = SState.Heap.find_ip label s in
+		let { proto; _ } = Heap.find_ip label s in
 		match proto with
 		| None ->
 		    let props = { props with more_but_fields = Some (IdSet.add field but_fields) } in
-		    let s = SState.Heap.update_p label props s in
+		    let s = Heap.update_p label props s in
 		    SState.res_false s
 		| Some lab -> symbolic_has_prop lab
 	      in
-	      SState.PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
+	      PathCondition.branch has has_not (Mk.sop2 ~typ:tBool "has-own-property?" v1 v2) s
     in
     symbolic_has_prop label
 | (SHeapLabel _ | SSymb (TV (TRef | TVAny), _)), (SConst (CString _) | SSymb (TV (TP (TStr | TPAny) | TVAny), _)) ->

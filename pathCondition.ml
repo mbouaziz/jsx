@@ -405,22 +405,22 @@ type pred_kind = PPath | PAssume | PAssert
 type 'a _pathcomponent = { pred : 'a _predicate ; pred_kind : pred_kind }
 type 'a _pathcondition = { big_and : 'a _pathcomponent list ; sat : lbool ; smt : bool ; model : SMT.model option }
 
-type ('t, 's) predicate = ('t, 's) SymbolicValue._svalue _predicate
-type ('t, 's) pathcomponent = ('t, 's) SymbolicValue._svalue _pathcomponent
-type ('t, 's) pathcondition = ('t, 's) SymbolicValue._svalue _pathcondition
+type 'c predicate = 'c SymbolicValue._svalue _predicate
+type 'c pathcomponent = 'c SymbolicValue._svalue _pathcomponent
+type 'c pathcondition = 'c SymbolicValue._svalue _pathcondition
 
 module VC :
 sig
   module Symbols :
   sig
-    val of_pathcomponent : string StringMap.t -> ('t, 's) pathcomponent -> string StringMap.t
+    val of_pathcomponent : string StringMap.t -> 'c pathcomponent -> string StringMap.t
   end
 
-  val assert_pathcomponent : ('t, 's) pathcomponent -> unit
-  val check_sat : ('t, 's) pathcomponent list -> lbool
-  val check_sat_model : ('t, 's) pathcomponent list -> lbool * SMT.model
-  val check_pred_sat : ('t, 's) predicate -> lbool
-  val check_pred_sat_model : ('t, 's) predicate -> lbool * SMT.model
+  val assert_pathcomponent : 'c pathcomponent -> unit
+  val check_sat : 'c pathcomponent list -> lbool
+  val check_sat_model : 'c pathcomponent list -> lbool * SMT.model
+  val check_pred_sat : 'c predicate -> lbool
+  val check_pred_sat_model : 'c predicate -> lbool * SMT.model
 end =
 struct
   module ToSMT =
