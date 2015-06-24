@@ -7,7 +7,4 @@ if (a === "a" && b === "b")
 	print("Ok");
     }
 else
-    {
-	assert(a+b === "ab");
-	print("Maybe");
-    }
+    print("Maybe");

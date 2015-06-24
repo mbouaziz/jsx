@@ -41,7 +41,8 @@ Fun:
 
 - old(x) evaluates x in the context at the beginning of the function
    - problem with the "arguments" stuff ?
-  
+
+- two runs at the same time (product of states, only the path condition is common)
 
 XDelta:
 Optimization of some trivial cases
@@ -56,6 +57,10 @@ Compilation:
 - option to replace the SMT env
 
 - optimize embedded environments (print them as OCaml values instead of parsing them each time) with a priority on the SMT env
+
+- -version
+
+- Z3 version
 
 LambdaJS:
 
