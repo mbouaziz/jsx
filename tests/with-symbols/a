@@ -1,0 +1,48 @@
+assume(prim->num(Float x) = Float x)
+assume(prim->num(Int x) = Float (int->num x))
+
+f: string -> string
+
+[a, b, c, f(a), f(f(a)), f(f(..
+
+forall x: prim { | prim->num(Float x) = Float x
+
+prim->num(float(x))
+
+Float 2,
+
+prim->num(Float 2) = Float 2
+
++: intxint -> int
+
+
+plus: prim x prim -> prim
+
+(Int 2) (Int 3)
+
+PC => x = (Int 2) && y = (Int 3)
+
+plus x y = Int 5
+
+
+forall x, y: int | int? (plus (Int x) (Int y) )
+
+forall x, y: int | plus (Int x) (Int y) = Int (x + y)
+
+forall x: int | int? (Int x)
+
+forall s: string | float? (prim->num (String s))
+forall x: float | float? (Float x)
+
+forall s: string, exists x:float | prim->num(String s) = Float x
+
+
+forall s: string | prim->num(String s) = Float (skolem (s))
+
+
+skolem: string -> float
+
+
+str->num: string -> float
+
+forall s: string | prim->num(String s) = Float (str->num s)
